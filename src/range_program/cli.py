@@ -13,6 +13,7 @@ from range_program.display_helpers import (
     print_grid_setups_block,
     print_mode_comparison_table,
     print_recalc_center_comparison_table,
+    print_recalc_width_comparison_table,
 )
 from range_program.models.defaults import (
     DEFAULT_CENTER_METHOD,
@@ -72,7 +73,9 @@ def cmd_add(
         help="Метод центра: price, ema, sma, median, midpoint, donchian",
     ),
     width_method: str = typer.Option(
-        DEFAULT_WIDTH_METHOD, "--width-method", help="Метод ширины (например atr)"
+        DEFAULT_WIDTH_METHOD,
+        "--width-method",
+        help="Метод ширины: atr, std, donchian, historical_range",
     ),
     capital: float | None = typer.Option(
         None,
@@ -296,7 +299,7 @@ def cmd_resolve_market(
 
 @app.command("recalc")
 def cmd_recalc(symbol: str = typer.Argument(..., help="Тикер монеты из хранилища")) -> None:
-    """Пересчитать рекомендуемый диапазон (MVP: EMA/price + ATR) и сохранить в монету."""
+    """Пересчитать рекомендуемый диапазон и сохранить в монету; вывести сравнение center_method и width_method."""
     norm = Coin.normalize_symbol(symbol)
     coin_before = _service.get_coin(norm)
     try:
@@ -321,6 +324,7 @@ def cmd_recalc(symbol: str = typer.Argument(..., help="Тикер монеты �
     typer.echo(f"calculated_at:    {rr.calculated_at.isoformat()}")
 
     print_recalc_center_comparison_table(out.center_comparison, saved_center_method=rr.center_method)
+    print_recalc_width_comparison_table(out.width_comparison, saved_width_method=rr.width_method)
 
     cap = coin_before.capital if coin_before is not None else None
     if cap is not None and rr.grid_configs:

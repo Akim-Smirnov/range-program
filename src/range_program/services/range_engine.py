@@ -7,7 +7,7 @@ from typing import Sequence
 
 from range_program.models.candle import Candle
 from range_program.models.coin import Coin
-from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES
+from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES, ALLOWED_WIDTH_METHODS
 from range_program.models.grid_config import GridConfig
 from range_program.models.recommended_range import RecommendedRange
 
@@ -22,6 +22,8 @@ MEDIAN_PERIOD = 20
 MIDPOINT_PERIOD = 20
 DONCHIAN_PERIOD = 20
 ATR_PERIOD = 14
+STD_PERIOD = 20
+HISTORICAL_RANGE_PERIOD = 20
 
 # Порядок строк при recalc: сравнение всех методов центра (без смены настроек монеты).
 RECALC_CENTER_COMPARISON_ORDER: tuple[str, ...] = (
@@ -33,10 +35,25 @@ RECALC_CENTER_COMPARISON_ORDER: tuple[str, ...] = (
     "donchian",
 )
 
+# Порядок строк при recalc: сравнение всех методов ширины (без смены center_method монеты).
+RECALC_WIDTH_COMPARISON_ORDER: tuple[str, ...] = (
+    "atr",
+    "std",
+    "donchian",
+    "historical_range",
+)
+
 _ATR_MULT: dict[str, float] = {
     "conservative": 6.0,
     "balanced": 4.0,
     "aggressive": 3.0,
+}
+
+# Множители к std(close) для half_width (отдельно от ATR).
+_STD_MULT: dict[str, float] = {
+    "conservative": 3.0,
+    "balanced": 2.2,
+    "aggressive": 1.6,
 }
 
 _MIN_WIDTH_PCT: dict[str, float] = {
@@ -69,11 +86,11 @@ def _sorted_candles(candles: Sequence[Candle]) -> list[Candle]:
     return sorted(candles, key=lambda c: c.timestamp)
 
 
-def _min_candles_for_center_method(center_method: str) -> int:
-    """Минимум свечей для расчёта центра + ATR (центр по цене не требует истории для самого центра)."""
+def _min_candles_for_center_only(center_method: str) -> int:
+    """Минимум свечей только для расчёта центра (без учёта width_method)."""
     cm = center_method.strip().lower()
     if cm == "price":
-        return ATR_PERIOD
+        return 0
     period_by_method = {
         "ema": EMA_PERIOD,
         "sma": SMA_PERIOD,
@@ -81,8 +98,24 @@ def _min_candles_for_center_method(center_method: str) -> int:
         "midpoint": MIDPOINT_PERIOD,
         "donchian": DONCHIAN_PERIOD,
     }
-    p = period_by_method.get(cm, 0)
-    return max(p, ATR_PERIOD)
+    return period_by_method.get(cm, 0)
+
+
+def _min_candles_for_width_method(width_method: str) -> int:
+    wm = width_method.strip().lower()
+    if wm == "atr":
+        return ATR_PERIOD
+    if wm == "std":
+        return STD_PERIOD
+    if wm == "donchian":
+        return DONCHIAN_PERIOD
+    if wm == "historical_range":
+        return HISTORICAL_RANGE_PERIOD
+    return 0
+
+
+def _min_candles_required(center_method: str, width_method: str) -> int:
+    return max(_min_candles_for_center_only(center_method), _min_candles_for_width_method(width_method), 1)
 
 
 def _ema_last(closes: list[float], period: int) -> float:
@@ -188,6 +221,68 @@ def _atr_wilder(candles: list[Candle], period: int) -> float:
     return atr
 
 
+def _calculate_half_width_atr(candles: list[Candle], mode: str) -> float:
+    atr_val = _atr_wilder(candles, ATR_PERIOD)
+    return float(atr_val) * _ATR_MULT[mode]
+
+
+def _calculate_half_width_std(closes: list[float], mode: str) -> float:
+    if len(closes) < STD_PERIOD:
+        raise RangeEngineError(
+            f"Недостаточно свечей для std({STD_PERIOD}): нужно хотя бы {STD_PERIOD}, есть {len(closes)}."
+        )
+    window = closes[-STD_PERIOD:]
+    if len(window) < 2:
+        raise RangeEngineError("Недостаточно точек для стандартного отклонения.")
+    sd = statistics.pstdev(window)
+    mult = _STD_MULT[mode]
+    return float(sd) * mult
+
+
+def _calculate_half_width_channel(candles: list[Candle], period: int, *, label: str) -> float:
+    """Полуширина (max_high - min_low) / 2 по окну; для donchian и historical_range (MVP — одна формула)."""
+    if len(candles) < period:
+        raise RangeEngineError(
+            f"Недостаточно свечей для {label}({period}): нужно хотя бы {period}, есть {len(candles)}."
+        )
+    w = candles[-period:]
+    hi = max(bar.high for bar in w)
+    lo = min(bar.low for bar in w)
+    full_w = hi - lo
+    if full_w <= 0:
+        raise RangeEngineError(f"Нулевая или отрицательная ширина канала ({label}).")
+    return full_w / 2.0
+
+
+def _calculate_half_width_donchian(candles: list[Candle]) -> float:
+    return _calculate_half_width_channel(candles, DONCHIAN_PERIOD, label="width_donchian")
+
+
+def _calculate_half_width_historical_range(candles: list[Candle]) -> float:
+    return _calculate_half_width_channel(candles, HISTORICAL_RANGE_PERIOD, label="historical_range")
+
+
+def _resolve_half_width(
+    width_method: str,
+    *,
+    series: list[Candle],
+    closes: list[float],
+    mode: str,
+) -> float:
+    wm = width_method.strip().lower()
+    if wm == "atr":
+        return _calculate_half_width_atr(series, mode)
+    if wm == "std":
+        return _calculate_half_width_std(closes, mode)
+    if wm == "donchian":
+        return _calculate_half_width_donchian(series)
+    if wm == "historical_range":
+        return _calculate_half_width_historical_range(series)
+    raise RangeEngineError(
+        f"width_method «{width_method}» не поддерживается (ожидалось одно из: {', '.join(sorted(ALLOWED_WIDTH_METHODS))})."
+    )
+
+
 def compute_geometric_grid_configs(width_pct: float, capital: float) -> tuple[GridConfig, ...]:
     """
     Три варианта геометрической сетки: step фиксирован по профилю,
@@ -233,7 +328,7 @@ def _clamp_half_width(center: float, half_width: float, mode: str) -> float:
 
 
 class RangeEngine:
-    """MVP-движок: центр (несколько методов), ширина ATR14 * множитель режима, clamp по %."""
+    """Движок: несколько center_method и width_method (atr, std, donchian, historical_range), clamp по %."""
 
     def calculate_range(
         self,
@@ -246,8 +341,11 @@ class RangeEngine:
         wm = coin.width_method.strip().lower()
         mode = coin.mode.strip().lower()
 
-        if wm != "atr":
-            raise RangeEngineError(f"width_method «{coin.width_method}» не поддерживается (нужен atr).")
+        if wm not in ALLOWED_WIDTH_METHODS:
+            raise RangeEngineError(
+                f"width_method «{coin.width_method}» не поддерживается "
+                f"(ожидалось одно из: {', '.join(sorted(ALLOWED_WIDTH_METHODS))})."
+            )
         if cm not in ALLOWED_CENTER_METHODS:
             raise RangeEngineError(
                 f"center_method «{coin.center_method}» не поддерживается "
@@ -263,10 +361,11 @@ class RangeEngine:
         if not series:
             raise RangeEngineError("Нет свечей для расчёта диапазона.")
 
-        need = _min_candles_for_center_method(cm)
+        need = _min_candles_required(cm, wm)
         if len(series) < need:
             raise RangeEngineError(
-                f"Слишком мало свечей для расчёта: для center_method={cm!r} нужно минимум {need}, есть {len(series)}."
+                f"Слишком мало свечей для расчёта: минимум {need} "
+                f"(center_method={cm!r}, width_method={wm!r}), есть {len(series)}."
             )
 
         closes = [c.close for c in series]
@@ -274,9 +373,9 @@ class RangeEngine:
         if center <= 0:
             raise RangeEngineError("Центр диапазона получился неположительным (проверьте данные свечей).")
 
-        atr_val = _atr_wilder(series, ATR_PERIOD)
-        mult = _ATR_MULT[mode]
-        half_width = float(atr_val) * mult
+        half_width = _resolve_half_width(wm, series=series, closes=closes, mode=mode)
+        if half_width <= 0:
+            raise RangeEngineError("Полуширина диапазона получилась неположительной (проверьте width_method и данные).")
 
         half_width = _clamp_half_width(center, half_width, mode)
 
@@ -316,7 +415,7 @@ class RangeEngine:
     ) -> tuple[tuple[str, RecommendedRange], ...]:
         """
         Считает recommended_range для каждого center_method из RECALC_CENTER_COMPARISON_ORDER
-        при тех же свечах, mode и ATR. Капитал не учитывается (без grid_configs) — только сравнение центра и полосы.
+        при тех же свечах и width_method монеты. Капитал не учитывается (без grid_configs).
         """
         base = replace(coin, capital=None)
         out: list[tuple[str, RecommendedRange]] = []
@@ -324,4 +423,23 @@ class RangeEngine:
             c = replace(base, center_method=m)
             rr = self.calculate_range(c, current_price=current_price, candles=candles)
             out.append((m, rr))
+        return tuple(out)
+
+    def compare_width_methods_for_recalc(
+        self,
+        coin: Coin,
+        *,
+        current_price: float,
+        candles: Sequence[Candle],
+    ) -> tuple[tuple[str, RecommendedRange], ...]:
+        """
+        Считает recommended_range для каждого width_method из RECALC_WIDTH_COMPARISON_ORDER
+        при том же center_method монеты. Капитал не учитывается (без grid_configs).
+        """
+        base = replace(coin, capital=None)
+        out: list[tuple[str, RecommendedRange]] = []
+        for w in RECALC_WIDTH_COMPARISON_ORDER:
+            c = replace(base, width_method=w)
+            rr = self.calculate_range(c, current_price=current_price, candles=candles)
+            out.append((w, rr))
         return tuple(out)

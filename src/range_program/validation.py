@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES
+from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES, ALLOWED_WIDTH_METHODS
 
 
 class ValidationError(Exception):
@@ -18,6 +18,13 @@ def validate_center_method(center_method: str) -> None:
     if cm not in ALLOWED_CENTER_METHODS:
         allowed = ", ".join(sorted(ALLOWED_CENTER_METHODS))
         raise ValidationError(f"center_method must be one of: {allowed}")
+
+
+def validate_width_method(width_method: str) -> None:
+    wm = width_method.strip().lower()
+    if wm not in ALLOWED_WIDTH_METHODS:
+        allowed = ", ".join(sorted(ALLOWED_WIDTH_METHODS))
+        raise ValidationError(f"width_method must be one of: {allowed}")
 
 
 def validate_range_bounds(low: float, high: float) -> None:

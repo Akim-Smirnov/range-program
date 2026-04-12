@@ -10,6 +10,7 @@ from range_program.models.recommended_range import RecommendedRange
 from range_program.models.defaults import (
     ALLOWED_CENTER_METHODS,
     ALLOWED_MODES,
+    ALLOWED_WIDTH_METHODS,
     DEFAULT_CENTER_METHOD,
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MODE,
@@ -24,6 +25,7 @@ __all__ = [
     "CheckResult",
     "ALLOWED_CENTER_METHODS",
     "ALLOWED_MODES",
+    "ALLOWED_WIDTH_METHODS",
     "Coin",
     "GridConfig",
     "MarketSymbolMatch",

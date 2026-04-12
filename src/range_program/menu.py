@@ -16,6 +16,7 @@ from range_program.display_helpers import (
     print_grid_setups_block,
     print_mode_comparison_table,
     print_recalc_center_comparison_table,
+    print_recalc_width_comparison_table,
 )
 from range_program.history_view import print_history_entries
 from range_program.models.coin import Coin
@@ -529,6 +530,7 @@ def _do_recalc(deps: MenuDeps) -> None:
     typer.echo(f"width_method:     {rr.width_method}")
     typer.echo(f"calculated_at:    {rr.calculated_at.isoformat()}")
     print_recalc_center_comparison_table(out.center_comparison, saved_center_method=rr.center_method)
+    print_recalc_width_comparison_table(out.width_comparison, saved_width_method=rr.width_method)
     cap = coin_before.capital if coin_before is not None else None
     if cap is not None and rr.grid_configs:
         print_grid_setups_block(rr.grid_configs, quote=DEFAULT_QUOTE_ASSET)

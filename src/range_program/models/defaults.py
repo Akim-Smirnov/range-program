@@ -10,3 +10,6 @@ ALLOWED_MODES = frozenset({"conservative", "balanced", "aggressive"})
 
 # Допустимые center_method для RangeEngine (дефолт — ema).
 ALLOWED_CENTER_METHODS = frozenset({"price", "ema", "sma", "median", "midpoint", "donchian"})
+
+# Допустимые width_method для RangeEngine (дефолт — atr).
+ALLOWED_WIDTH_METHODS = frozenset({"atr", "std", "donchian", "historical_range"})

@@ -20,6 +20,7 @@ from range_program.validation import (
     validate_center_method,
     validate_mode,
     validate_range_bounds,
+    validate_width_method,
 )
 
 
@@ -52,6 +53,7 @@ class CoinService:
     ) -> tuple[bool, Coin | None]:
         validate_mode(mode)
         validate_center_method(center_method)
+        validate_width_method(width_method)
         validate_capital(capital)
         norm = Coin.normalize_symbol(symbol)
         ok = self._repo.add_coin(

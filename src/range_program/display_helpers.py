@@ -70,7 +70,45 @@ def print_recalc_center_comparison_table(
         return
     saved = saved_center_method.strip().lower()
     typer.echo("")
-    typer.echo("Сравнение center_method (одинаковые mode и ATR; * — сохранённый метод монеты):")
+    typer.echo("Сравнение center_method (одинаковый width_method монеты; * — сохранённый метод):")
+    headers = ("METHOD", "CENTER", "LOW", "HIGH", "WIDTH%")
+    data_rows: list[tuple[str, ...]] = []
+    for method, rr in rows:
+        mark = "*" if method == saved else ""
+        label = f"{method}{mark}"
+        data_rows.append(
+            (
+                label,
+                f"{rr.center:g}",
+                f"{rr.low:g}",
+                f"{rr.high:g}",
+                f"{rr.width_pct:g}",
+            )
+        )
+    widths = [len(h) for h in headers]
+    for row in data_rows:
+        for i, c in enumerate(row):
+            widths[i] = max(widths[i], len(c))
+
+    def line(parts: tuple[str, ...]) -> None:
+        typer.echo("  ".join(parts[i].ljust(widths[i]) for i in range(len(parts))))
+
+    line(tuple(headers))
+    for row in data_rows:
+        line(row)
+
+
+def print_recalc_width_comparison_table(
+    rows: tuple[tuple[str, RecommendedRange], ...] | list[tuple[str, RecommendedRange]],
+    *,
+    saved_width_method: str,
+) -> None:
+    """Таблица сравнения методов ширины после recalc; * — сохранённый width_method монеты."""
+    if not rows:
+        return
+    saved = saved_width_method.strip().lower()
+    typer.echo("")
+    typer.echo("Сравнение width_method (одинаковый center_method монеты; * — сохранённый метод):")
     headers = ("METHOD", "CENTER", "LOW", "HIGH", "WIDTH%")
     data_rows: list[tuple[str, ...]] = []
     for method, rr in rows:
