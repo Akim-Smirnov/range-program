@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from range_program.models.defaults import ALLOWED_MODES
+from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES
 
 
 class ValidationError(Exception):
@@ -11,6 +11,13 @@ def validate_mode(mode: str) -> None:
     if mode not in ALLOWED_MODES:
         allowed = ", ".join(sorted(ALLOWED_MODES))
         raise ValidationError(f"mode must be one of: {allowed}")
+
+
+def validate_center_method(center_method: str) -> None:
+    cm = center_method.strip().lower()
+    if cm not in ALLOWED_CENTER_METHODS:
+        allowed = ", ".join(sorted(ALLOWED_CENTER_METHODS))
+        raise ValidationError(f"center_method must be one of: {allowed}")
 
 
 def validate_range_bounds(low: float, high: float) -> None:

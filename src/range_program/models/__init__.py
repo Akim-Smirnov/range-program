@@ -8,6 +8,7 @@ from range_program.models.market_symbol_match import MarketSymbolMatch
 from range_program.models.mode_result import ModeResult
 from range_program.models.recommended_range import RecommendedRange
 from range_program.models.defaults import (
+    ALLOWED_CENTER_METHODS,
     ALLOWED_MODES,
     DEFAULT_CENTER_METHOD,
     DEFAULT_LOOKBACK_DAYS,
@@ -21,6 +22,7 @@ __all__ = [
     "BacktestResult",
     "Candle",
     "CheckResult",
+    "ALLOWED_CENTER_METHODS",
     "ALLOWED_MODES",
     "Coin",
     "GridConfig",

@@ -14,7 +14,13 @@ from range_program.models.defaults import (
     DEFAULT_WIDTH_METHOD,
 )
 from range_program.repositories.coin_repository import CoinRepository
-from range_program.validation import ValidationError, validate_capital, validate_mode, validate_range_bounds
+from range_program.validation import (
+    ValidationError,
+    validate_capital,
+    validate_center_method,
+    validate_mode,
+    validate_range_bounds,
+)
 
 
 def _utc_now() -> datetime:
@@ -45,6 +51,7 @@ class CoinService:
         quote_asset: str | None = None,
     ) -> tuple[bool, Coin | None]:
         validate_mode(mode)
+        validate_center_method(center_method)
         validate_capital(capital)
         norm = Coin.normalize_symbol(symbol)
         ok = self._repo.add_coin(

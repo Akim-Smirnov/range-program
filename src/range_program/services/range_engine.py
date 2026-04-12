@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import statistics
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Sequence
 
 from range_program.models.candle import Candle
 from range_program.models.coin import Coin
-from range_program.models.defaults import ALLOWED_MODES
+from range_program.models.defaults import ALLOWED_CENTER_METHODS, ALLOWED_MODES
 from range_program.models.grid_config import GridConfig
 from range_program.models.recommended_range import RecommendedRange
 
@@ -15,7 +17,21 @@ class RangeEngineError(Exception):
 
 
 EMA_PERIOD = 20
+SMA_PERIOD = 20
+MEDIAN_PERIOD = 20
+MIDPOINT_PERIOD = 20
+DONCHIAN_PERIOD = 20
 ATR_PERIOD = 14
+
+# Порядок строк при recalc: сравнение всех методов центра (без смены настроек монеты).
+RECALC_CENTER_COMPARISON_ORDER: tuple[str, ...] = (
+    "price",
+    "ema",
+    "sma",
+    "median",
+    "midpoint",
+    "donchian",
+)
 
 _ATR_MULT: dict[str, float] = {
     "conservative": 6.0,
@@ -53,6 +69,22 @@ def _sorted_candles(candles: Sequence[Candle]) -> list[Candle]:
     return sorted(candles, key=lambda c: c.timestamp)
 
 
+def _min_candles_for_center_method(center_method: str) -> int:
+    """Минимум свечей для расчёта центра + ATR (центр по цене не требует истории для самого центра)."""
+    cm = center_method.strip().lower()
+    if cm == "price":
+        return ATR_PERIOD
+    period_by_method = {
+        "ema": EMA_PERIOD,
+        "sma": SMA_PERIOD,
+        "median": MEDIAN_PERIOD,
+        "midpoint": MIDPOINT_PERIOD,
+        "donchian": DONCHIAN_PERIOD,
+    }
+    p = period_by_method.get(cm, 0)
+    return max(p, ATR_PERIOD)
+
+
 def _ema_last(closes: list[float], period: int) -> float:
     if len(closes) < period:
         raise RangeEngineError(
@@ -63,6 +95,71 @@ def _ema_last(closes: list[float], period: int) -> float:
     for price in closes[period:]:
         ema = price * k + ema * (1.0 - k)
     return ema
+
+
+def _calculate_center_sma(closes: list[float], period: int) -> float:
+    if len(closes) < period:
+        raise RangeEngineError(
+            f"Недостаточно свечей для SMA({period}): нужно хотя бы {period}, есть {len(closes)}."
+        )
+    window = closes[-period:]
+    return sum(window) / float(period)
+
+
+def _calculate_center_median(closes: list[float], period: int) -> float:
+    if len(closes) < period:
+        raise RangeEngineError(
+            f"Недостаточно свечей для median по {period} закрытиям: нужно хотя бы {period}, есть {len(closes)}."
+        )
+    window = closes[-period:]
+    return float(statistics.median(window))
+
+
+def _calculate_center_midpoint(candles: list[Candle], period: int) -> float:
+    """Центр = (max high + min low) / 2 по последним period свечам."""
+    if len(candles) < period:
+        raise RangeEngineError(
+            f"Недостаточно свечей для midpoint({period}): нужно хотя бы {period}, есть {len(candles)}."
+        )
+    w = candles[-period:]
+    hi = max(bar.high for bar in w)
+    lo = min(bar.low for bar in w)
+    return (hi + lo) / 2.0
+
+
+def _calculate_center_donchian(candles: list[Candle], period: int) -> float:
+    """Центр канала Дончиана: (highest_high + lowest_low) / 2; в MVP окно как у midpoint."""
+    if len(candles) < period:
+        raise RangeEngineError(
+            f"Недостаточно свечей для donchian({period}): нужно хотя бы {period}, есть {len(candles)}."
+        )
+    w = candles[-period:]
+    hi = max(bar.high for bar in w)
+    lo = min(bar.low for bar in w)
+    return (hi + lo) / 2.0
+
+
+def _resolve_center(
+    center_method: str,
+    *,
+    current_price: float,
+    series: list[Candle],
+    closes: list[float],
+) -> float:
+    cm = center_method.strip().lower()
+    if cm == "price":
+        return float(current_price)
+    if cm == "ema":
+        return float(_ema_last(closes, EMA_PERIOD))
+    if cm == "sma":
+        return float(_calculate_center_sma(closes, SMA_PERIOD))
+    if cm == "median":
+        return float(_calculate_center_median(closes, MEDIAN_PERIOD))
+    if cm == "midpoint":
+        return float(_calculate_center_midpoint(series, MIDPOINT_PERIOD))
+    if cm == "donchian":
+        return float(_calculate_center_donchian(series, DONCHIAN_PERIOD))
+    raise RangeEngineError(f"center_method «{center_method}» не поддерживается (ожидалось одно из: {sorted(ALLOWED_CENTER_METHODS)}).")
 
 
 def _true_ranges(candles: list[Candle]) -> list[float]:
@@ -136,7 +233,7 @@ def _clamp_half_width(center: float, half_width: float, mode: str) -> float:
 
 
 class RangeEngine:
-    """Первый MVP-движок: центр (price/EMA20), ширина ATR14 * множитель режима, clamp по %."""
+    """MVP-движок: центр (несколько методов), ширина ATR14 * множитель режима, clamp по %."""
 
     def calculate_range(
         self,
@@ -151,8 +248,11 @@ class RangeEngine:
 
         if wm != "atr":
             raise RangeEngineError(f"width_method «{coin.width_method}» не поддерживается (нужен atr).")
-        if cm not in ("price", "ema"):
-            raise RangeEngineError(f"center_method «{coin.center_method}» не поддерживается (нужны price или ema).")
+        if cm not in ALLOWED_CENTER_METHODS:
+            raise RangeEngineError(
+                f"center_method «{coin.center_method}» не поддерживается "
+                f"(ожидалось одно из: {', '.join(sorted(ALLOWED_CENTER_METHODS))})."
+            )
         if mode not in ALLOWED_MODES:
             raise RangeEngineError(f"Неизвестный mode «{coin.mode}».")
 
@@ -160,16 +260,19 @@ class RangeEngine:
             raise RangeEngineError("Текущая цена не получена или некорректна.")
 
         series = _sorted_candles(candles)
-        if len(series) < max(EMA_PERIOD, ATR_PERIOD):
+        if not series:
+            raise RangeEngineError("Нет свечей для расчёта диапазона.")
+
+        need = _min_candles_for_center_method(cm)
+        if len(series) < need:
             raise RangeEngineError(
-                f"Слишком мало свечей для расчёта: нужно минимум {max(EMA_PERIOD, ATR_PERIOD)}, есть {len(series)}."
+                f"Слишком мало свечей для расчёта: для center_method={cm!r} нужно минимум {need}, есть {len(series)}."
             )
 
         closes = [c.close for c in series]
-        if cm == "price":
-            center = float(current_price)
-        else:
-            center = float(_ema_last(closes, EMA_PERIOD))
+        center = _resolve_center(cm, current_price=current_price, series=series, closes=closes)
+        if center <= 0:
+            raise RangeEngineError("Центр диапазона получился неположительным (проверьте данные свечей).")
 
         atr_val = _atr_wilder(series, ATR_PERIOD)
         mult = _ATR_MULT[mode]
@@ -203,3 +306,22 @@ class RangeEngine:
             width_method=wm,
             grid_configs=grid_cfgs,
         )
+
+    def compare_center_methods_for_recalc(
+        self,
+        coin: Coin,
+        *,
+        current_price: float,
+        candles: Sequence[Candle],
+    ) -> tuple[tuple[str, RecommendedRange], ...]:
+        """
+        Считает recommended_range для каждого center_method из RECALC_CENTER_COMPARISON_ORDER
+        при тех же свечах, mode и ATR. Капитал не учитывается (без grid_configs) — только сравнение центра и полосы.
+        """
+        base = replace(coin, capital=None)
+        out: list[tuple[str, RecommendedRange]] = []
+        for m in RECALC_CENTER_COMPARISON_ORDER:
+            c = replace(base, center_method=m)
+            rr = self.calculate_range(c, current_price=current_price, candles=candles)
+            out.append((m, rr))
+        return tuple(out)

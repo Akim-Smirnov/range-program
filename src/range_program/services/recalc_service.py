@@ -48,10 +48,13 @@ def estimate_candle_limit(timeframe: str, lookback_days: int) -> int:
 
 @dataclass(frozen=True)
 class RecalcOutcome:
+    """Итог recalc: сохранённый recommended_range и таблица сравнения всех center_method."""
+
     symbol: str
     mode: str
     current_price: float
     recommended: RecommendedRange
+    center_comparison: tuple[tuple[str, RecommendedRange], ...]
 
 
 class RecalcService:
@@ -84,6 +87,9 @@ class RecalcService:
 
         try:
             rr = self._engine.calculate_range(coin, current_price=current_price, candles=candles)
+            center_comparison = self._engine.compare_center_methods_for_recalc(
+                coin, current_price=current_price, candles=candles
+            )
         except RangeEngineError:
             raise
 
@@ -104,4 +110,5 @@ class RecalcService:
             mode=coin.mode,
             current_price=float(current_price),
             recommended=rr,
+            center_comparison=center_comparison,
         )

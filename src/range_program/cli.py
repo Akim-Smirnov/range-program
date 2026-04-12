@@ -9,7 +9,11 @@ import typer
 from range_program.config import DEFAULT_QUOTE_ASSET
 from range_program.logging_config import get_logger, setup_logging
 from range_program.models.coin import Coin
-from range_program.display_helpers import print_grid_setups_block, print_mode_comparison_table
+from range_program.display_helpers import (
+    print_grid_setups_block,
+    print_mode_comparison_table,
+    print_recalc_center_comparison_table,
+)
 from range_program.models.defaults import (
     DEFAULT_CENTER_METHOD,
     DEFAULT_LOOKBACK_DAYS,
@@ -63,7 +67,9 @@ def cmd_add(
     timeframe: str = typer.Option(DEFAULT_TIMEFRAME, "--timeframe", "-t", help='Таймфрейм, например "4h"'),
     lookback: int = typer.Option(DEFAULT_LOOKBACK_DAYS, "--lookback", "-l", help="Глубина истории в днях"),
     center_method: str = typer.Option(
-        DEFAULT_CENTER_METHOD, "--center-method", help="Метод центра (например ema, price)"
+        DEFAULT_CENTER_METHOD,
+        "--center-method",
+        help="Метод центра: price, ema, sma, median, midpoint, donchian",
     ),
     width_method: str = typer.Option(
         DEFAULT_WIDTH_METHOD, "--width-method", help="Метод ширины (например atr)"
@@ -313,6 +319,8 @@ def cmd_recalc(symbol: str = typer.Argument(..., help="Тикер монеты �
     typer.echo(f"center_method:    {rr.center_method}")
     typer.echo(f"width_method:     {rr.width_method}")
     typer.echo(f"calculated_at:    {rr.calculated_at.isoformat()}")
+
+    print_recalc_center_comparison_table(out.center_comparison, saved_center_method=rr.center_method)
 
     cap = coin_before.capital if coin_before is not None else None
     if cap is not None and rr.grid_configs:

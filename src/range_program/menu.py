@@ -12,7 +12,11 @@ from questionary import Choice
 
 from range_program.check_all_report import aggregate_counts, print_check_all_table, print_summary
 from range_program.config import DEFAULT_QUOTE_ASSET
-from range_program.display_helpers import print_grid_setups_block, print_mode_comparison_table
+from range_program.display_helpers import (
+    print_grid_setups_block,
+    print_mode_comparison_table,
+    print_recalc_center_comparison_table,
+)
 from range_program.history_view import print_history_entries
 from range_program.models.coin import Coin
 from range_program.models.defaults import (
@@ -524,6 +528,7 @@ def _do_recalc(deps: MenuDeps) -> None:
     typer.echo(f"center_method:    {rr.center_method}")
     typer.echo(f"width_method:     {rr.width_method}")
     typer.echo(f"calculated_at:    {rr.calculated_at.isoformat()}")
+    print_recalc_center_comparison_table(out.center_comparison, saved_center_method=rr.center_method)
     cap = coin_before.capital if coin_before is not None else None
     if cap is not None and rr.grid_configs:
         print_grid_setups_block(rr.grid_configs, quote=DEFAULT_QUOTE_ASSET)
