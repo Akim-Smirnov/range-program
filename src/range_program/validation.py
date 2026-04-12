@@ -1,0 +1,26 @@
+from __future__ import annotations
+
+from range_program.models.defaults import ALLOWED_MODES
+
+
+class ValidationError(Exception):
+    """Ошибка проверки входных данных (доменная)."""
+
+
+def validate_mode(mode: str) -> None:
+    if mode not in ALLOWED_MODES:
+        allowed = ", ".join(sorted(ALLOWED_MODES))
+        raise ValidationError(f"mode must be one of: {allowed}")
+
+
+def validate_range_bounds(low: float, high: float) -> None:
+    if low >= high:
+        raise ValidationError("low must be strictly less than high")
+
+
+def validate_capital(capital: float | None) -> None:
+    """Капитал по монете: либо не задан, либо строго положительный."""
+    if capital is None:
+        return
+    if capital <= 0:
+        raise ValidationError("capital must be positive")
