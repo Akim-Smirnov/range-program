@@ -7,10 +7,9 @@ from datetime import datetime, timezone
 import typer
 
 from range_program.config import DEFAULT_QUOTE_ASSET
-from range_program.models.grid_config import GridConfig
 from range_program.logging_config import get_logger, setup_logging
 from range_program.models.coin import Coin
-from range_program.models.mode_result import ModeResult
+from range_program.display_helpers import print_grid_setups_block, print_mode_comparison_table
 from range_program.models.defaults import (
     DEFAULT_CENTER_METHOD,
     DEFAULT_LOOKBACK_DAYS,
@@ -55,56 +54,6 @@ def _handle_validation(e: ValidationError) -> None:
 def _handle_market(e: MarketDataError) -> None:
     typer.secho(str(e), fg=typer.colors.RED)
     raise typer.Exit(code=1)
-
-
-def _print_mode_comparison_table(symbol: str, days: int, rows: list[ModeResult]) -> None:
-    typer.echo("")
-    typer.echo(f"Mode comparison {symbol} ({days} days)")
-    typer.echo("")
-    headers = ("MODE", "LIFETIME", "OK", "WARNING", "STALE", "DEV%", "SCORE")
-    data_rows: list[tuple[str, ...]] = []
-    for r in rows:
-        data_rows.append(
-            (
-                r.mode,
-                f"{r.lifetime_days:.1f}",
-                f"{r.ok_days:.1f}",
-                f"{r.warning_days:.1f}",
-                f"{r.stale_days:.1f}",
-                f"{r.max_deviation_pct:.1f}%",
-                f"{r.score:.1f}",
-            )
-        )
-    widths = [len(h) for h in headers]
-    for row in data_rows:
-        for i, c in enumerate(row):
-            widths[i] = max(widths[i], len(c))
-
-    def line(parts: tuple[str, ...]) -> None:
-        typer.echo("  ".join(parts[i].ljust(widths[i]) for i in range(len(parts))))
-
-    line(tuple(headers))
-    for row in data_rows:
-        line(row)
-
-
-def _print_grid_setups_block(grid_configs: tuple[GridConfig, ...], *, quote: str) -> None:
-    labels = (
-        ("aggressive", "Aggressive"),
-        ("balanced", "Balanced"),
-        ("conservative", "Conservative"),
-    )
-    typer.echo("")
-    typer.echo("Grid setups:")
-    by_mode = {g.mode: g for g in grid_configs}
-    for key, title in labels:
-        g = by_mode.get(key)
-        if g is None:
-            continue
-        typer.echo(f"{title}:")
-        typer.echo(f"  grids: {g.grid_count}")
-        typer.echo(f"  step: {g.step_pct:.2f}%")
-        typer.echo(f"  order size: {g.order_size:.2f} {quote}")
 
 
 @app.command("add")
@@ -367,7 +316,7 @@ def cmd_recalc(symbol: str = typer.Argument(..., help="Тикер монеты �
 
     cap = coin_before.capital if coin_before is not None else None
     if cap is not None and rr.grid_configs:
-        _print_grid_setups_block(rr.grid_configs, quote=DEFAULT_QUOTE_ASSET)
+        print_grid_setups_block(rr.grid_configs, quote=DEFAULT_QUOTE_ASSET)
     elif cap is None:
         typer.echo("")
         typer.secho(
@@ -574,7 +523,7 @@ def cmd_optimize(
         return
 
     log.info("optimize symbol=%s days=%d", norm, days)
-    _print_mode_comparison_table(norm, days, rows)
+    print_mode_comparison_table(norm, days, rows)
 
     best = best_mode_result(rows)
     if best is not None:
@@ -610,7 +559,7 @@ def cmd_suggest(
         return
 
     log.info("suggest symbol=%s days=%d", norm, days)
-    _print_mode_comparison_table(norm, days, rows)
+    print_mode_comparison_table(norm, days, rows)
 
     best = best_mode_result(rows)
     if best is None:
@@ -661,6 +610,30 @@ def cmd_clear_active(symbol: str = typer.Argument(..., help="Тикер моне
         return
     log.info("clear-active symbol=%s", coin.symbol)
     typer.echo(f"Активный диапазон для {coin.symbol} удалён (updated_at={coin.updated_at.isoformat()})")
+
+
+def _run_interactive_menu() -> None:
+    from range_program.menu import MenuDeps, run_interactive_menu
+
+    run_interactive_menu(
+        MenuDeps(
+            coins=_service,
+            market=_market,
+            recalc=_recalc,
+            check=_check,
+            history_repo=_history_repo,
+        )
+    )
+
+
+@app.command("menu", help="Интерактивное меню (стрелки и Enter).")
+def cmd_menu() -> None:
+    _run_interactive_menu()
+
+
+@app.command("ui", help="То же, что menu: интерактивный режим.")
+def cmd_ui() -> None:
+    _run_interactive_menu()
 
 
 def main() -> None:
