@@ -3,12 +3,14 @@ from __future__ import annotations
 import logging
 from dataclasses import replace
 from datetime import datetime, timezone
+from typing import Callable
 
 from range_program.models.check_result import CheckResult
 from range_program.models.coin import Coin
 from range_program.services.coin_service import CoinService
 from range_program.services.evaluator import Evaluator, EvaluatorError
 from range_program.services.market_data import MarketDataError, MarketDataService
+from range_program.services.recommended_range_freshness import is_recommended_range_stale
 from range_program.services.range_engine import RangeEngineError
 from range_program.services.recalc_service import RecalcService
 from range_program.validation import ValidationError
@@ -33,12 +35,14 @@ class CheckService:
         recalc: RecalcService,
         evaluator: Evaluator | None = None,
         history: CheckHistoryRepository | None = None,
+        now_provider: Callable[[], datetime] | None = None,
     ) -> None:
         self._coins = coins
         self._market = market
         self._recalc = recalc
         self._eval = evaluator or Evaluator()
         self._history = history
+        self._now = now_provider or _utc_now
 
     def run_check(self, symbol: str) -> CheckResult:
         sym = Coin.normalize_symbol(symbol)
@@ -51,13 +55,15 @@ class CheckService:
                 f"У монеты {sym} нет активного диапазона. Задайте: range set-active {sym} --low ... --high ..."
             )
 
-        if coin.recommended_range is None:
+        recalc_reason: str | None = self._recalc_reason(coin)
+        if recalc_reason is not None:
             try:
                 self._recalc.recalc(sym)
             except (ValidationError, MarketDataError, RangeEngineError) as e:
                 raise ValidationError(
-                    f"Нет рекомендуемого диапазона; автоматический recalc не удался: {e}"
+                    f"{recalc_reason}; автоматический recalc не удался: {e}"
                 ) from e
+            _log.info("auto recalc before check symbol=%s reason=%s", sym, recalc_reason)
             coin = self._coins.get_coin(sym)
             if coin is None or coin.recommended_range is None:
                 raise ValidationError(
@@ -77,7 +83,7 @@ class CheckService:
             _log.warning("evaluator failed symbol=%s: %s", sym, e)
             raise ValidationError(str(e)) from e
 
-        now = _utc_now()
+        now = self._now()
         updated = replace(
             coin,
             last_check=result,
@@ -93,6 +99,17 @@ class CheckService:
             self._history.save_check(result)
 
         return result
+
+    def _recalc_reason(self, coin: Coin) -> str | None:
+        if coin.recommended_range is None:
+            return "Нет рекомендуемого диапазона"
+        if is_recommended_range_stale(
+            calculated_at=coin.recommended_range.calculated_at,
+            timeframe=coin.timeframe,
+            now_utc=self._now(),
+        ):
+            return "Рекомендуемый диапазон устарел"
+        return None
 
     def run_check_safe(self, symbol: str) -> tuple[CheckResult | None, str | None]:
         """То же, что run_check, но без исключений — для массовой проверки."""

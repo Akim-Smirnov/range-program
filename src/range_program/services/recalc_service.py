@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
@@ -9,29 +8,12 @@ from range_program.models.recommended_range import RecommendedRange
 from range_program.services.coin_service import CoinService
 from range_program.services.market_data import MarketDataError, MarketDataService
 from range_program.services.range_engine import RangeEngine, RangeEngineError
+from range_program.services.timeframe_utils import bars_per_day as _bars_per_day
 from range_program.validation import ValidationError
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _bars_per_day(timeframe: str) -> float:
-    """Грубая оценка числа свечей в сутки по строке ccxt (1m, 4h, 1d, ...)."""
-    tf = timeframe.strip().lower()
-    m = re.match(r"^(\d+)([mhdw])$", tf)
-    if not m:
-        return 24.0
-    n, unit = int(m.group(1)), m.group(2)
-    if unit == "m":
-        return (24.0 * 60.0) / n if n else 24.0
-    if unit == "h":
-        return 24.0 / n if n else 24.0
-    if unit == "d":
-        return 1.0 / n if n else 1.0
-    if unit == "w":
-        return 1.0 / (7.0 * n) if n else 1.0 / 7.0
-    return 24.0
 
 
 def bars_per_day(timeframe: str) -> float:
