@@ -42,6 +42,7 @@ from range_program.validation import ValidationError
 NEXT_BACK = "back"
 NEXT_MAIN = "main"
 NEXT_EXIT = "exit"
+_RECALC_SAVE_ACTIVE_COMMENT = "Saved from recommended_range after recalc (menu)"
 
 
 def parse_optional_float(raw: str) -> float | None:
@@ -540,6 +541,41 @@ def _do_recalc(deps: MenuDeps) -> None:
             "Capital не задан; сетки недоступны. Задайте capital в разделе Coins.",
             fg=typer.colors.YELLOW,
         )
+
+    _offer_save_recommended_as_active(deps, norm)
+
+
+def _offer_save_recommended_as_active(deps: MenuDeps, symbol: str) -> None:
+    if not questionary.confirm(
+        "Сохранить рассчитанный recommended_range как active range?",
+        default=False,
+    ).ask():
+        return
+
+    norm = Coin.normalize_symbol(symbol)
+    coin = deps.coins.get_coin(norm)
+    if coin is None:
+        typer.secho(f"Монета {norm} не найдена.", fg=typer.colors.YELLOW)
+        return
+    rr = coin.recommended_range
+    if rr is None:
+        typer.secho(
+            "Не удалось сохранить active range: у монеты нет recommended_range после recalc.",
+            fg=typer.colors.YELLOW,
+        )
+        return
+
+    updated = deps.coins.set_active_range(
+        norm,
+        rr.low,
+        rr.high,
+        comment=_RECALC_SAVE_ACTIVE_COMMENT,
+    )
+    ar = updated.active_range
+    if ar is None:
+        typer.secho("Не удалось сохранить active range.", fg=typer.colors.RED)
+        return
+    typer.echo(f"Активный диапазон для {updated.symbol} сохранён (set_at={ar.set_at.isoformat()})")
 
 
 def _do_show_recommended(deps: MenuDeps) -> None:
