@@ -1,4 +1,10 @@
-"""Табличный вывод для `range check --all` (этап 7)."""
+"""Формирование и вывод отчета для команды `range check --all`.
+
+Модуль отвечает за:
+- преобразование `CheckResult` в строки отчета;
+- форматирование чисел и процентов для CLI;
+- цветной вывод таблицы и агрегированной сводки по статусам.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,8 @@ import typer
 
 from range_program.models.check_result import CheckResult
 
-# Приоритет сортировки: проблемные сверху (меньше = важнее)
+# Приоритет сортировки для строк отчета:
+# чем меньше число, тем выше строка поднимается в итоговой таблице.
 STATUS_SORT_ORDER: dict[str, int] = {
     "OUT_OF_RANGE": 0,
     "ERROR": 1,
@@ -20,10 +27,12 @@ STATUS_SORT_ORDER: dict[str, int] = {
 
 
 def status_sort_key(status: str) -> int:
+    """Вернуть числовой приоритет статуса для сортировки."""
     return STATUS_SORT_ORDER.get(status, 99)
 
 
 def _fmt_price(p: float) -> str:
+    """Форматировать цену для компактного табличного отображения."""
     if p >= 1000:
         return f"{p:,.0f}".replace(",", "")
     if p >= 1:
@@ -33,21 +42,25 @@ def _fmt_price(p: float) -> str:
 
 
 def _fmt_range(lo: float, hi: float) -> str:
+    """Собрать строку диапазона `low-high` в человекочитаемом виде."""
     return f"{_fmt_num(lo)}–{_fmt_num(hi)}"
 
 
 def _fmt_num(n: float) -> str:
+    """Показать целые значения без дробной части, остальные как есть."""
     if abs(n - round(n)) < 1e-9:
         return str(int(round(n)))
     return f"{n:g}"
 
 
 def _fmt_pct(x: float) -> str:
+    """Форматировать процент с одной цифрой после запятой."""
     return f"{x:.1f}%"
 
 
 @dataclass(frozen=True)
 class CheckTableRow:
+    """Нормализованная строка для вывода результата проверки в таблицу."""
     symbol: str
     price: str
     active_range: str
@@ -59,10 +72,12 @@ class CheckTableRow:
 
     @property
     def sort_rank(self) -> int:
+        """Ключ сортировки по важности статуса."""
         return status_sort_key(self.status)
 
     @classmethod
     def from_check_result(cls, r: CheckResult) -> CheckTableRow:
+        """Сконвертировать доменную модель `CheckResult` в строку таблицы."""
         return cls(
             symbol=r.symbol,
             price=_fmt_price(r.current_price),
@@ -76,6 +91,7 @@ class CheckTableRow:
 
     @classmethod
     def error_row(cls, symbol: str, message: str) -> CheckTableRow:
+        """Построить строку ошибки, обрезав длинное сообщение для колонки DEV."""
         short = message.replace("\n", " ").strip()
         if len(short) > 24:
             short = short[:21] + "..."
@@ -110,6 +126,7 @@ def _status_fg(status: str) -> str:
 
 
 def _col_widths(rows: list[CheckTableRow], headers: tuple[str, ...]) -> list[int]:
+    """Рассчитать ширину каждой колонки по заголовкам и содержимому."""
     w = [len(h) for h in headers]
     for r in rows:
         vals = (r.symbol, r.price, r.active_range, r.rec_range, r.dist_down, r.dist_up, r.dev, r.status)
@@ -119,6 +136,7 @@ def _col_widths(rows: list[CheckTableRow], headers: tuple[str, ...]) -> list[int
 
 
 def print_check_all_table(rows: list[CheckTableRow]) -> None:
+    """Вывести цветную таблицу результатов `range check --all` в CLI."""
     headers = (
         "SYMBOL",
         "PRICE",
@@ -163,6 +181,7 @@ def print_check_all_table(rows: list[CheckTableRow]) -> None:
 
 
 def print_summary(counts: dict[str, int]) -> None:
+    """Вывести сводку количества инструментов по каждому статусу."""
     typer.echo("")
     typer.echo("Summary:")
     order = ("OUT_OF_RANGE", "REPOSITION", "STALE", "WARNING", "OK", "ERROR")
@@ -171,6 +190,7 @@ def print_summary(counts: dict[str, int]) -> None:
 
 
 def aggregate_counts(rows: list[CheckTableRow]) -> dict[str, int]:
+    """Подсчитать распределение статусов по строкам таблицы."""
     keys = ("OUT_OF_RANGE", "REPOSITION", "STALE", "WARNING", "OK", "ERROR")
     out = {k: 0 for k in keys}
     for r in rows:
