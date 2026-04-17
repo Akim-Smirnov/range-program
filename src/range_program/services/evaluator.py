@@ -39,9 +39,13 @@ class Evaluator:
 
     def evaluate(self, coin: Coin, current_price: float) -> CheckResult:
         if coin.active_range is None:
-            raise EvaluatorError("Нет активного диапазона (active_range). Задайте: range set-active ...")
+            raise EvaluatorError(
+                "Нет активного диапазона (active_range). Задайте в меню: Coins → «Задать active range»."
+            )
         if coin.recommended_range is None:
-            raise EvaluatorError("Нет рекомендуемого диапазона (recommended_range). Выполните: range recalc ...")
+            raise EvaluatorError(
+                "Нет рекомендуемого диапазона (recommended_range). Выполните пересчёт: Range analysis → «Пересчитать диапазон»."
+            )
 
         ar = coin.active_range
         rr = coin.recommended_range

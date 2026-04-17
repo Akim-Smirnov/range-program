@@ -908,10 +908,10 @@ def _do_suggest(deps: MenuDeps) -> None:
     typer.echo("Рекомендация (вручную, без автосмены):")
     typer.echo(
         f"  • Установите mode={best.mode!r} для {norm} в data/coins.json "
-        f"(или пересоздайте монету: range remove {norm} && range add {norm} --mode {best.mode} …)."
+        f"(или пересоздайте монету в разделе Coins → «Удалить монету» / «Добавить монету» с нужным mode)."
     )
     typer.echo(
-        f"  • Текущий mode в хранилище: {coin.mode!r}. После смены выполните: range recalc {norm}"
+        f"  • Текущий mode в хранилище: {coin.mode!r}. После смены выполните пересчёт: Range analysis → «Пересчитать диапазон»."
     )
     typer.echo("")
 

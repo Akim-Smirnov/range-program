@@ -52,7 +52,7 @@ class CheckService:
 
         if coin.active_range is None:
             raise ValidationError(
-                f"У монеты {sym} нет активного диапазона. Задайте: range set-active {sym} --low ... --high ..."
+                f"У монеты {sym} нет активного диапазона. Задайте в меню: Coins → «Задать active range»."
             )
 
         recalc_reason: str | None = self._recalc_reason(coin)
