@@ -11,6 +11,7 @@ from range_program.models.recommended_range import RecommendedRange
 
 
 def print_grid_setups_block(grid_configs: tuple[GridConfig, ...], *, quote: str = DEFAULT_QUOTE_ASSET) -> None:
+    """Печатает блок конфигураций сетки по режимам с базовыми параметрами ордеров."""
     labels = (
         ("aggressive", "Aggressive"),
         ("balanced", "Balanced"),
@@ -30,6 +31,7 @@ def print_grid_setups_block(grid_configs: tuple[GridConfig, ...], *, quote: str 
 
 
 def print_mode_comparison_table(symbol: str, days: int, rows: list[ModeResult]) -> None:
+    """Выводит сводную таблицу сравнения режимов для выбранного символа и периода."""
     typer.echo("")
     typer.echo(f"Mode comparison {symbol} ({days} days)")
     typer.echo("")
