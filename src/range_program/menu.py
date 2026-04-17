@@ -50,7 +50,12 @@ def parse_optional_float(raw: str) -> float | None:
     s = (raw or "").strip()
     if not s:
         return None
-    return float(s)
+    try:
+        return float(s)
+    except ValueError as e:
+        raise ValueError(
+            "Ожидалось число; для пропуска оставьте поле пустым."
+        ) from e
 
 
 def parse_optional_str(raw: str) -> str | None:

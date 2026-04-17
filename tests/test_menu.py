@@ -32,6 +32,11 @@ def test_parse_optional_float() -> None:
     assert parse_optional_float("1.25") == 1.25
 
 
+def test_parse_optional_float_invalid_raises_clear_message() -> None:
+    with pytest.raises(ValueError, match="Ожидалось число"):
+        parse_optional_float("12abc")
+
+
 def test_parse_optional_str() -> None:
     assert parse_optional_str("") is None
     assert parse_optional_str("  ") is None
