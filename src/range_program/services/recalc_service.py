@@ -107,19 +107,21 @@ class RecalcService:
         if coin is None:
             raise ValidationError(f"Монета {sym} не найдена в хранилище.")
 
-        working = coin
         if timeframe is not None:
             validate_timeframe(timeframe)
-            working = replace(working, timeframe=str(timeframe))
         if lookback_days is not None:
             validate_lookback_days(int(lookback_days))
-            working = replace(working, lookback_days=int(lookback_days))
         if center_method is not None:
             validate_center_method(center_method)
-            working = replace(working, center_method=str(center_method))
         if width_method is not None:
             validate_width_method(width_method)
-            working = replace(working, width_method=str(width_method))
+
+        working = coin.with_settings(
+            timeframe=timeframe,
+            lookback_days=lookback_days,
+            center_method=center_method,
+            width_method=width_method,
+        )
 
         need = min_candles_required(working.center_method, working.width_method)
         limit = estimate_candle_limit_with_min(working.timeframe, working.lookback_days, min_required=need)
