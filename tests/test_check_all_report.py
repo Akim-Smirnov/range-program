@@ -1,6 +1,7 @@
 from range_program.check_all_report import (
     CheckTableRow,
     aggregate_counts,
+    select_rows,
     status_sort_key,
 )
 
@@ -32,3 +33,22 @@ def test_aggregate_counts() -> None:
     c = aggregate_counts(rows)
     assert c["OK"] == 2
     assert c["ERROR"] == 1
+
+
+def test_select_rows_filter_and_top_n() -> None:
+    rows = [
+        CheckTableRow("ETH", "1", "a", "r", "1%", "1%", "1%", "OK"),
+        CheckTableRow("BTC", "1", "a", "r", "1%", "1%", "1%", "OUT_OF_RANGE"),
+        CheckTableRow("SOL", "1", "a", "r", "1%", "1%", "1%", "WARNING"),
+        CheckTableRow("AAA", "—", "—", "—", "—", "—", "x", "ERROR"),
+    ]
+
+    problems = select_rows(rows, exclude_ok_by_default=True)
+    assert {r.status for r in problems} == {"OUT_OF_RANGE", "WARNING", "ERROR"}
+
+    only_critical = select_rows(rows, statuses={"OUT_OF_RANGE", "ERROR"})
+    assert [r.status for r in only_critical] == ["OUT_OF_RANGE", "ERROR"]
+
+    top1 = select_rows(rows, exclude_ok_by_default=True, top_n=1)
+    assert len(top1) == 1
+    assert top1[0].status == "OUT_OF_RANGE"

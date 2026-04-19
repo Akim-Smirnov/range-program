@@ -26,7 +26,12 @@ import questionary
 import typer
 from questionary import Choice
 
-from range_program.check_all_report import aggregate_counts, print_check_all_table, print_summary
+from range_program.check_all_report import (
+    aggregate_counts,
+    print_check_all_table,
+    print_summary,
+    select_rows,
+)
 from range_program.config import DEFAULT_QUOTE_ASSET
 from range_program.display_helpers import (
     print_grid_setups_block,
@@ -900,8 +905,38 @@ def _do_check_all(deps: MenuDeps) -> None:
     if auto is None:
         return
     rows = deps.check.run_check_all(auto_recalc=bool(auto))
-    print_check_all_table(rows)
-    print_summary(aggregate_counts(rows))
+
+    filt = questionary.select(
+        "Фильтр для отчёта",
+        choices=[
+            Choice("Все монеты", value="all"),
+            Choice("Только проблемные (без OK)", value="problems"),
+            Choice("Только OUT_OF_RANGE и ERROR", value="critical"),
+            Choice("Проблемные без ERROR (OUT/REPOSITION/STALE/WARNING)", value="warn"),
+        ],
+        style=questionary.Style([("selected", "fg:cyan bold")]),
+    ).ask()
+    if filt is None:
+        return
+
+    statuses: set[str] | None = None
+    exclude_ok = False
+    if filt == "problems":
+        exclude_ok = True
+    elif filt == "critical":
+        statuses = {"OUT_OF_RANGE", "ERROR"}
+    elif filt == "warn":
+        statuses = {"OUT_OF_RANGE", "REPOSITION", "STALE", "WARNING"}
+
+    top_raw = questionary.text("Top-N строк (0 = все)", default="0").ask()
+    if top_raw is None:
+        return
+    top_n = int(str(top_raw).strip() or "0")
+    top_n_opt = None if top_n <= 0 else top_n
+
+    selected = select_rows(rows, statuses=statuses, top_n=top_n_opt, exclude_ok_by_default=exclude_ok)
+    print_check_all_table(selected)
+    print_summary(aggregate_counts(selected))
 
 
 def _do_last_check(deps: MenuDeps) -> None:

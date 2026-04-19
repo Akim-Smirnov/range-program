@@ -135,8 +135,40 @@ def _col_widths(rows: list[CheckTableRow], headers: tuple[str, ...]) -> list[int
     return w
 
 
-def print_check_all_table(rows: list[CheckTableRow]) -> None:
-    """Вывести цветную таблицу результатов `range check --all` в CLI."""
+def select_rows(
+    rows: list[CheckTableRow],
+    *,
+    statuses: set[str] | None = None,
+    top_n: int | None = None,
+    exclude_ok_by_default: bool = False,
+) -> list[CheckTableRow]:
+    """
+    Подготовить строки отчёта: фильтр по статусам и/или top-N “самых проблемных”.
+
+    - statuses=None: оставить все статусы (или исключить OK, если exclude_ok_by_default=True)
+    - statuses={...}: оставить только эти статусы
+    - top_n: взять первые N строк после сортировки по важности (sort_rank) и symbol
+    """
+    filtered = list(rows)
+    if statuses is not None:
+        filtered = [r for r in filtered if r.status in statuses]
+    elif exclude_ok_by_default:
+        filtered = [r for r in filtered if r.status != "OK"]
+
+    filtered.sort(key=lambda r: (r.sort_rank, r.symbol))
+    if top_n is not None and top_n > 0:
+        return filtered[: int(top_n)]
+    return filtered
+
+
+def print_check_all_table(
+    rows: list[CheckTableRow],
+    *,
+    statuses: set[str] | None = None,
+    top_n: int | None = None,
+    exclude_ok_by_default: bool = False,
+) -> None:
+    """Вывести цветную таблицу результатов `range check --all` в CLI (с опциональными фильтрами)."""
     headers = (
         "SYMBOL",
         "PRICE",
@@ -147,6 +179,7 @@ def print_check_all_table(rows: list[CheckTableRow]) -> None:
         "DEV",
         "STATUS",
     )
+    rows = select_rows(rows, statuses=statuses, top_n=top_n, exclude_ok_by_default=exclude_ok_by_default)
     if not rows:
         typer.echo("(нет монет для проверки)")
         return

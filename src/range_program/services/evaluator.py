@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from range_program.config import (
+    EVAL_NEAR_EDGE_FRAC,
+    EVAL_REPOSITION_CENTER_DIFF_PCT,
+    EVAL_STALE_DEVIATION_PCT,
+)
 from range_program.models.check_result import CheckResult
 from range_program.models.coin import Coin
 
@@ -15,9 +20,9 @@ def _utc_now() -> datetime:
 
 
 # Пороги MVP (доли и проценты)
-_NEAR_EDGE_FRAC = 0.05  # 5% ширины диапазона до границы
-_STALE_DEVIATION_PCT = 12.0
-_REPOSITION_CENTER_DIFF_PCT = 10.0
+_NEAR_EDGE_FRAC = EVAL_NEAR_EDGE_FRAC  # 5% ширины диапазона до границы
+_STALE_DEVIATION_PCT = EVAL_STALE_DEVIATION_PCT
+_REPOSITION_CENTER_DIFF_PCT = EVAL_REPOSITION_CENTER_DIFF_PCT
 
 _RECOMMENDATIONS: dict[str, str] = {
     "OUT_OF_RANGE": "Диапазон больше не актуален — цена вне сетки; нужно переставить сетку.",
@@ -76,6 +81,8 @@ class Evaluator:
             active_center=active_center,
             rec_center=rec_center,
             deviation_pct=deviation_from_active_center_pct,
+            distance_to_lower_pct=distance_to_lower_pct,
+            distance_to_upper_pct=distance_to_upper_pct,
         )
 
         if ar.comment:
@@ -109,12 +116,22 @@ class Evaluator:
         active_center: float,
         rec_center: float,
         deviation_pct: float,
+        distance_to_lower_pct: float,
+        distance_to_upper_pct: float,
     ) -> tuple[str, str]:
         """Приоритет: OUT_OF_RANGE > REPOSITION > STALE > WARNING > OK."""
 
         # 1. OUT_OF_RANGE
         if current_price < low or current_price > high:
-            return "OUT_OF_RANGE", _RECOMMENDATIONS["OUT_OF_RANGE"]
+            if current_price < low:
+                diff = low - current_price
+                pct = _safe_pct(diff, low)
+                hint = f"Цена ниже low на {diff:g} (≈{pct:.1f}%). Переставьте сетку ниже/сузьте диапазон."
+            else:
+                diff = current_price - high
+                pct = _safe_pct(diff, high)
+                hint = f"Цена выше high на {diff:g} (≈{pct:.1f}%). Переставьте сетку выше/расширьте диапазон."
+            return "OUT_OF_RANGE", f"{_RECOMMENDATIONS['OUT_OF_RANGE']} {hint}"
 
         # Цена внутри [low, high] для остальных правил
         assert inside
@@ -123,17 +140,26 @@ class Evaluator:
         if active_center > 0:
             center_diff_pct = abs(rec_center - active_center) / active_center * 100.0
             if center_diff_pct > _REPOSITION_CENTER_DIFF_PCT:
-                return "REPOSITION", _RECOMMENDATIONS["REPOSITION"]
+                direction = "выше" if rec_center > active_center else "ниже"
+                hint = (
+                    f"Рекомендуемый центр {direction} активного на ≈{center_diff_pct:.1f}% "
+                    f"(active_center={active_center:g}, recommended_center={rec_center:g})."
+                )
+                return "REPOSITION", f"{_RECOMMENDATIONS['REPOSITION']} {hint}"
 
         # 3. STALE — отклонение цены от центра active > 12%
         if deviation_pct > _STALE_DEVIATION_PCT:
-            return "STALE", _RECOMMENDATIONS["STALE"]
+            hint = f"Отклонение от центра active ≈{deviation_pct:.1f}% (цена={current_price:g}, active_center={active_center:g})."
+            return "STALE", f"{_RECOMMENDATIONS['STALE']} {hint}"
 
         # 4. WARNING — близко к границе (нижние/верхние 5% ширины)
         if width > 0:
             pos = (current_price - low) / width
             if pos < _NEAR_EDGE_FRAC or pos > 1.0 - _NEAR_EDGE_FRAC:
-                return "WARNING", _RECOMMENDATIONS["WARNING"]
+                edge = "нижней" if pos < 0.5 else "верхней"
+                dist = distance_to_lower_pct if edge == "нижней" else distance_to_upper_pct
+                hint = f"Цена ближе к {edge} границе; запас ≈{dist:.1f}%."
+                return "WARNING", f"{_RECOMMENDATIONS['WARNING']} {hint}"
 
         # 5. OK
         return "OK", _RECOMMENDATIONS["OK"]
