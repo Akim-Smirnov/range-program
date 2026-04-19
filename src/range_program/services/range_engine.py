@@ -118,6 +118,11 @@ def _min_candles_required(center_method: str, width_method: str) -> int:
     return max(_min_candles_for_center_only(center_method), _min_candles_for_width_method(width_method), 1)
 
 
+def min_candles_required(center_method: str, width_method: str) -> int:
+    """Публичная функция: минимум свечей для пары методов (center + width)."""
+    return _min_candles_required(center_method, width_method)
+
+
 def _ema_last(closes: list[float], period: int) -> float:
     if len(closes) < period:
         raise RangeEngineError(
