@@ -73,7 +73,7 @@ def validate_lookback_days(lookback_days: int) -> None:
 def validate_range_bounds(low: float, high: float) -> None:
     """Проверяет, что границы диапазона корректны (low < high)."""
     if low >= high:
-        raise ValidationError("low должен быть строго меньше high")
+        raise ValidationError(f"Некорректные границы диапазона: low={low:g} должен быть меньше high={high:g}.")
 
 
 def validate_capital(capital: float | None) -> None:

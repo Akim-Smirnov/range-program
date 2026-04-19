@@ -9,7 +9,7 @@ def test_set_active_requires_existing_coin(tmp_path) -> None:
     path = tmp_path / "c.json"
     repo = CoinRepository(path)
     svc = CoinService(repo)
-    with pytest.raises(ValidationError, match="not found"):
+    with pytest.raises(ValidationError, match="не найдена"):
         svc.set_active_range("BTC", 1.0, 2.0)
 
 
@@ -52,3 +52,14 @@ def test_add_coin_rejects_invalid_lookback_days(tmp_path) -> None:
     svc = CoinService(repo)
     with pytest.raises(ValidationError, match="lookback_days"):
         svc.add_coin("BTC", lookback_days=0)
+
+
+def test_clear_active_range_clears_range(tmp_path) -> None:
+    path = tmp_path / "c.json"
+    repo = CoinRepository(path)
+    svc = CoinService(repo)
+    ok, _ = svc.add_coin("BTC")
+    assert ok
+    svc.set_active_range("BTC", 1.0, 2.0, comment="ставим бота")
+    cleared = svc.clear_active_range("BTC", comment="сброс вручную")
+    assert cleared.active_range is None
