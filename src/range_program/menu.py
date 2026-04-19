@@ -1,4 +1,20 @@
-"""Интерактивное терминальное меню: навигация и вызов существующих сервисов."""
+"""
+Интерактивное терминальное меню Range Program (TUI).
+
+Этот модуль реализует текстовое меню на базе `questionary` и служит “обвязкой”
+вокруг доменных сервисов:
+- управление монетами (`CoinService`),
+- получение рыночных данных (`MarketDataService`),
+- пересчёт рекомендаций (`RecalcService`),
+- проверки диапазона и история (`CheckService` и `CheckHistoryRepository`),
+- бэктест и оптимизация.
+
+Ключевой принцип: в меню нет тяжёлой бизнес-логики. Меню:
+- задаёт вопросы пользователю,
+- вызывает сервисы,
+- показывает результат,
+- ловит доменные ошибки и печатает понятные сообщения.
+"""
 
 from __future__ import annotations
 
@@ -21,7 +37,9 @@ from range_program.display_helpers import (
 from range_program.history_view import print_history_entries
 from range_program.models.coin import Coin
 from range_program.models.defaults import (
+    ALLOWED_CENTER_METHODS,
     ALLOWED_MODES,
+    ALLOWED_WIDTH_METHODS,
     DEFAULT_CENTER_METHOD,
     DEFAULT_LOOKBACK_DAYS,
     DEFAULT_MODE,
@@ -34,15 +52,19 @@ from range_program.services.check_service import CheckService
 from range_program.services.coin_service import CoinService
 from range_program.services.market_data import MarketDataError, MarketDataService
 from range_program.services.optimizer import best_mode_result, compare_modes
-from range_program.services.range_engine import RangeEngineError
-from range_program.services.recalc_service import RecalcService, bars_per_day
+from range_program.services.range_engine import RangeEngineError, min_candles_required
+from range_program.services.recalc_service import (
+    RecalcService,
+    bars_per_day,
+    estimate_candle_limit_with_min,
+)
 from range_program.validation import ValidationError
 
 
 NEXT_BACK = "back"
 NEXT_MAIN = "main"
 NEXT_EXIT = "exit"
-_RECALC_SAVE_ACTIVE_COMMENT = "Saved from recommended_range after recalc (menu)"
+_RECALC_SAVE_ACTIVE_COMMENT = "Сохранено из recommended_range после recalc (меню)"
 
 
 def parse_optional_float(raw: str) -> float | None:
@@ -59,11 +81,13 @@ def parse_optional_float(raw: str) -> float | None:
 
 
 def parse_optional_str(raw: str) -> str | None:
+    """Пустая строка → None; иначе строка без пробелов по краям."""
     s = (raw or "").strip()
     return s if s else None
 
 
 def parse_int_with_default(raw: str, *, default: int, minimum: int | None = None) -> int:
+    """Парсит int, позволяя пустую строку как значение `default`."""
     s = (raw or "").strip()
     if not s:
         n = default
@@ -79,6 +103,7 @@ def _echo_error(msg: str) -> None:
 
 
 def _safe_call(fn: Callable[[], None]) -> None:
+    """Запуск действия меню с единообразной обработкой ошибок."""
     try:
         fn()
     except ValidationError as e:
@@ -494,6 +519,7 @@ def _range_section(deps: MenuDeps) -> Literal["main", "exit"]:
             "Range analysis",
             choices=[
                 Choice("Пересчитать диапазон (recalc)", value="recalc"),
+                Choice("Recalc с параметрами (анализ/override)", value="recalc_params"),
                 Choice("Показать recommended range", value="show_rr"),
                 Choice("Показать grid setups", value="grids"),
                 Choice("« Назад в главное меню", value="back"),
@@ -505,6 +531,8 @@ def _range_section(deps: MenuDeps) -> Literal["main", "exit"]:
 
         if act == "recalc":
             _safe_call(lambda: _do_recalc(deps))
+        elif act == "recalc_params":
+            _safe_call(lambda: _do_recalc_with_params(deps))
         elif act == "show_rr":
             _safe_call(lambda: _do_show_recommended(deps))
         elif act == "grids":
@@ -518,6 +546,7 @@ def _range_section(deps: MenuDeps) -> Literal["main", "exit"]:
 
 
 def _do_recalc(deps: MenuDeps) -> None:
+    """Recalc по сохранённым настройкам монеты (с сохранением результата)."""
     sym = _pick_coin_symbol(deps, title="Монета")
     if sym is None:
         return
@@ -548,6 +577,125 @@ def _do_recalc(deps: MenuDeps) -> None:
         )
 
     _offer_save_recommended_as_active(deps, norm)
+
+
+def _do_recalc_with_params(deps: MenuDeps) -> None:
+    """
+    Recalc с параметрами (override) для анализа без записи.
+
+    Сценарий:
+    1) спрашиваем параметры (timeframe/lookback/методы),
+    2) показываем диагностическую информацию (need/limit/биржа/пара),
+    3) выполняем recalc с save=False,
+    4) предлагаем (по желанию) пересчитать ещё раз с save=True, чтобы сохранить.
+    """
+    sym = _pick_coin_symbol(deps, title="Монета")
+    if sym is None:
+        return
+    norm = Coin.normalize_symbol(sym)
+    coin = deps.coins.get_coin(norm)
+    if coin is None:
+        typer.secho(f"Монета {norm} не найдена в хранилище.", fg=typer.colors.YELLOW)
+        return
+
+    # Вопросы к пользователю. Дефолты = текущие значения монеты.
+    tf_raw = questionary.text(
+        "timeframe (например 4h, 1d)",
+        default=str(coin.timeframe),
+    ).ask()
+    if tf_raw is None:
+        return
+    timeframe = str(tf_raw).strip() or str(coin.timeframe)
+
+    lb_raw = questionary.text(
+        "lookback_days (глубина истории в днях)",
+        default=str(coin.lookback_days),
+    ).ask()
+    if lb_raw is None:
+        return
+    lookback_days = int(str(lb_raw).strip() or coin.lookback_days)
+
+    center_choices = [coin.center_method] + [m for m in sorted(ALLOWED_CENTER_METHODS) if m != coin.center_method]
+    cm = questionary.select(
+        "center_method",
+        choices=[Choice(m, value=m) for m in center_choices],
+        style=questionary.Style([("selected", "fg:cyan bold")]),
+    ).ask()
+    if cm is None:
+        return
+    center_method = str(cm)
+
+    width_choices = [coin.width_method] + [w for w in sorted(ALLOWED_WIDTH_METHODS) if w != coin.width_method]
+    wm = questionary.select(
+        "width_method",
+        choices=[Choice(w, value=w) for w in width_choices],
+        style=questionary.Style([("selected", "fg:cyan bold")]),
+    ).ask()
+    if wm is None:
+        return
+    width_method = str(wm)
+
+    working = coin.with_settings(
+        timeframe=timeframe,
+        lookback_days=lookback_days,
+        center_method=center_method,
+        width_method=width_method,
+    )
+
+    need = min_candles_required(working.center_method, working.width_method)
+    limit = estimate_candle_limit_with_min(working.timeframe, working.lookback_days, min_required=need)
+
+    typer.echo("")
+    typer.echo("Диагностика перед recalc:")
+    typer.echo(f"  settings: timeframe={working.timeframe} lookback_days={working.lookback_days}")
+    typer.echo(f"           center_method={working.center_method} width_method={working.width_method}")
+    typer.echo(f"  candles: need(min)={need} limit(request)={limit} bars/day≈{bars_per_day(working.timeframe):g}")
+
+    try:
+        match = deps.market.resolve_market(coin)
+        typer.echo(f"  market:  {match.exchange}:{match.symbol_pair}")
+    except MarketDataError as e:
+        typer.secho(f"  market:  не удалось определить заранее: {e}", fg=typer.colors.YELLOW)
+
+    typer.echo("")
+    typer.secho("Запуск recalc в режиме анализа (без сохранения)...", fg=typer.colors.CYAN)
+    out = deps.recalc.recalc(
+        sym,
+        timeframe=working.timeframe,
+        lookback_days=working.lookback_days,
+        center_method=working.center_method,
+        width_method=working.width_method,
+        save=False,
+    )
+    rr = out.recommended
+    typer.echo("")
+    typer.echo(f"{out.symbol}")
+    typer.echo(f"Current price: {out.current_price}")
+    typer.echo(f"Range: {rr.low:g} - {rr.high:g}")
+    typer.echo(f"Center: {rr.center:g}")
+    typer.echo(f"Width: {rr.width_pct:g}%")
+    typer.echo(f"Mode: {out.mode}")
+    typer.echo(f"center_method:    {rr.center_method}")
+    typer.echo(f"width_method:     {rr.width_method}")
+    typer.echo(f"calculated_at:    {rr.calculated_at.isoformat()}")
+    print_recalc_center_comparison_table(out.center_comparison, saved_center_method=rr.center_method)
+    print_recalc_width_comparison_table(out.width_comparison, saved_width_method=rr.width_method)
+
+    if questionary.confirm(
+        "Сохранить рассчитанный recommended_range и параметры в монету?",
+        default=False,
+    ).ask():
+        typer.echo("")
+        typer.secho("Сохраняю (выполняю recalc ещё раз с save=True)...", fg=typer.colors.CYAN)
+        deps.recalc.recalc(
+            sym,
+            timeframe=working.timeframe,
+            lookback_days=working.lookback_days,
+            center_method=working.center_method,
+            width_method=working.width_method,
+            save=True,
+        )
+        _offer_save_recommended_as_active(deps, norm)
 
 
 def _offer_save_recommended_as_active(deps: MenuDeps, symbol: str) -> None:
