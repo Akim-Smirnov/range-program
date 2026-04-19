@@ -2,8 +2,10 @@ from range_program.check_all_report import (
     CheckTableRow,
     aggregate_counts,
     format_check_all_table,
+    format_check_all_csv,
     format_summary,
     select_rows,
+    select_worst_rows,
     status_sort_key,
 )
 
@@ -18,9 +20,9 @@ def test_status_sort_order_priority() -> None:
 
 def test_table_rows_sort_by_status_then_symbol() -> None:
     rows = [
-        CheckTableRow("ETH", "1", "a", "r", "1%", "1%", "1%", "OK"),
-        CheckTableRow("BTC", "1", "a", "r", "1%", "1%", "1%", "OUT_OF_RANGE"),
-        CheckTableRow("SOL", "1", "a", "r", "1%", "1%", "1%", "WARNING"),
+        CheckTableRow("ETH", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK"),
+        CheckTableRow("BTC", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 5.0, "OUT_OF_RANGE"),
+        CheckTableRow("SOL", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 2.0, "WARNING"),
     ]
     rows.sort(key=lambda r: (r.sort_rank, r.symbol))
     assert [r.symbol for r in rows] == ["BTC", "SOL", "ETH"]
@@ -28,9 +30,9 @@ def test_table_rows_sort_by_status_then_symbol() -> None:
 
 def test_aggregate_counts() -> None:
     rows = [
-        CheckTableRow("A", "1", "a", "r", "1%", "1%", "1%", "OK"),
-        CheckTableRow("B", "1", "a", "r", "1%", "1%", "1%", "OK"),
-        CheckTableRow("C", "—", "—", "—", "—", "—", "x", "ERROR"),
+        CheckTableRow("A", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK"),
+        CheckTableRow("B", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK"),
+        CheckTableRow("C", "—", None, "—", None, None, "—", None, None, "—", None, "—", None, "x", None, "ERROR"),
     ]
     c = aggregate_counts(rows)
     assert c["OK"] == 2
@@ -39,10 +41,10 @@ def test_aggregate_counts() -> None:
 
 def test_select_rows_filter_and_top_n() -> None:
     rows = [
-        CheckTableRow("ETH", "1", "a", "r", "1%", "1%", "1%", "OK"),
-        CheckTableRow("BTC", "1", "a", "r", "1%", "1%", "1%", "OUT_OF_RANGE"),
-        CheckTableRow("SOL", "1", "a", "r", "1%", "1%", "1%", "WARNING"),
-        CheckTableRow("AAA", "—", "—", "—", "—", "—", "x", "ERROR"),
+        CheckTableRow("ETH", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK"),
+        CheckTableRow("BTC", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 10.0, "OUT_OF_RANGE"),
+        CheckTableRow("SOL", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 3.0, "WARNING"),
+        CheckTableRow("AAA", "—", None, "—", None, None, "—", None, None, "—", None, "—", None, "x", None, "ERROR"),
     ]
 
     problems = select_rows(rows, exclude_ok_by_default=True)
@@ -58,10 +60,30 @@ def test_select_rows_filter_and_top_n() -> None:
 
 def test_format_table_and_summary_smoke() -> None:
     rows = [
-        CheckTableRow("BTC", "1", "a", "r", "1%", "1%", "1%", "OUT_OF_RANGE"),
-        CheckTableRow("ETH", "1", "a", "r", "1%", "1%", "1%", "OK"),
+        CheckTableRow("BTC", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 10.0, "OUT_OF_RANGE"),
+        CheckTableRow("ETH", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK"),
     ]
     txt = format_check_all_table(rows)
     assert "SYMBOL" in txt and "BTC" in txt
     summ = format_summary(aggregate_counts(rows))
     assert "Summary" in summ and "OK" in summ
+
+
+def test_format_csv_and_tsv_smoke() -> None:
+    rows = [
+        CheckTableRow("BTC", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 10.0, "OUT_OF_RANGE", "do it"),
+        CheckTableRow("ETH", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 1.0, "OK", "ok"),
+    ]
+    csv_txt = format_check_all_csv(rows, delimiter=",")
+    assert "symbol,status,price" in csv_txt
+    tsv_txt = format_check_all_csv(rows, delimiter="\t")
+    assert "symbol\tstatus\tprice" in tsv_txt
+
+
+def test_select_worst_rows_prefers_higher_deviation_within_status() -> None:
+    rows = [
+        CheckTableRow("AAA", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 2.0, "WARNING"),
+        CheckTableRow("BBB", "1", 1.0, "a", 1.0, 2.0, "r", 1.0, 2.0, "1%", 1.0, "1%", 1.0, "1%", 8.0, "WARNING"),
+    ]
+    worst = select_worst_rows(rows, top_n=1)
+    assert worst[0].symbol == "BBB"

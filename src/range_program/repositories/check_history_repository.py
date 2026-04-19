@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +21,28 @@ def _parse_dt(value: str) -> datetime:
 
 
 class CheckHistoryRepository:
-    """Append-only JSON-история проверок (`data/check_history.json`)."""
+    """
+    JSON-история проверок (`data/check_history.json`).
 
-    def __init__(self, path: Path | None = None, *, max_per_symbol: int = 500) -> None:
+    Файл используется для “журнала” результатов check.
+
+    Чтобы история не росла бесконечно, репозиторий поддерживает ограничения:
+    - `max_per_symbol`: максимум записей на одну монету,
+    - `max_total`: максимум записей во всём файле.
+
+    Также доступна “очистка по времени”: удалить записи старше N дней.
+    """
+
+    def __init__(
+        self,
+        path: Path | None = None,
+        *,
+        max_per_symbol: int = 500,
+        max_total: int = 5000,
+    ) -> None:
         self._path = path or _default_path()
         self._max_per_symbol = int(max_per_symbol)
+        self._max_total = int(max_total)
 
     @property
     def path(self) -> Path:
@@ -35,6 +52,11 @@ class CheckHistoryRepository:
     def max_per_symbol(self) -> int:
         """Максимум записей на монету (защита от бесконечного роста файла)."""
         return self._max_per_symbol
+
+    @property
+    def max_total(self) -> int:
+        """Максимум записей во всём файле истории."""
+        return self._max_total
 
     def _ensure_parent(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +107,7 @@ class CheckHistoryRepository:
         items = self._load_raw()
         items.append(self._check_result_to_record(result))
         items = self._rotate(items)
+        items = self._apply_global_limit(items)
         self._save_raw(items)
 
     def _rotate(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -122,6 +145,59 @@ class CheckHistoryRepository:
         if not to_drop:
             return items
         return [rec for idx, rec in enumerate(items) if idx not in to_drop]
+
+    def _apply_global_limit(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Ограничить общий размер истории до `max_total`, удаляя самые старые записи."""
+        limit = int(self._max_total)
+        if limit < 1:
+            return []
+        if len(items) <= limit:
+            return items
+
+        def key(d: dict[str, Any]) -> datetime:
+            try:
+                dt = _parse_dt(str(d.get("checked_at", "")))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return dt
+            except (ValueError, TypeError):
+                return datetime.min.replace(tzinfo=timezone.utc)
+
+        indexed = [(key(rec), idx) for idx, rec in enumerate(items)]
+        indexed_sorted = sorted(indexed, key=lambda t: (t[0], t[1]))  # старые → новые
+        to_drop = set(idx for _, idx in indexed_sorted[: len(indexed_sorted) - limit])
+        log.info("history rotate global drop=%s keep=%s", len(to_drop), limit)
+        return [rec for idx, rec in enumerate(items) if idx not in to_drop]
+
+    def purge_older_than_days(self, days: int, *, now_utc: datetime | None = None) -> int:
+        """
+        Удалить записи старше N дней по полю checked_at.
+
+        Возвращает число удалённых записей.
+        """
+        n = int(days)
+        if n < 1:
+            return 0
+        now = now_utc or datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=n)
+        items = self._load_raw()
+        before = len(items)
+
+        def keep(rec: dict[str, Any]) -> bool:
+            try:
+                dt = _parse_dt(str(rec.get("checked_at", "")))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except (ValueError, TypeError):
+                return True
+            return dt >= cutoff
+
+        kept = [rec for rec in items if keep(rec)]
+        removed = before - len(kept)
+        if removed:
+            log.info("history purge older-than-days=%s removed=%s", n, removed)
+            self._save_raw(kept)
+        return removed
 
     def get_all(self) -> list[dict[str, Any]]:
         """Все записи в порядке хранения в файле."""

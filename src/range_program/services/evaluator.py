@@ -121,6 +121,11 @@ class Evaluator:
     ) -> tuple[str, str]:
         """Приоритет: OUT_OF_RANGE > REPOSITION > STALE > WARNING > OK."""
 
+        active_width_pct = _safe_pct(high - low, active_center) if active_center > 0 else 0.0
+        # “Целевое действие” относительно рекомендованного диапазона:
+        # - смещение центра в % (от active_center)
+        center_shift_pct = _safe_pct(rec_center - active_center, active_center) if active_center > 0 else 0.0
+
         # 1. OUT_OF_RANGE
         if current_price < low or current_price > high:
             if current_price < low:
@@ -131,7 +136,11 @@ class Evaluator:
                 diff = current_price - high
                 pct = _safe_pct(diff, high)
                 hint = f"Цена выше high на {diff:g} (≈{pct:.1f}%). Переставьте сетку выше/расширьте диапазон."
-            return "OUT_OF_RANGE", f"{_RECOMMENDATIONS['OUT_OF_RANGE']} {hint}"
+            # Подсказка действия (в числах) — смещение центра к цене
+            direction = "вверх" if current_price > active_center else "вниз"
+            shift = _safe_pct(current_price - active_center, active_center) if active_center > 0 else 0.0
+            action = f"Целевое действие: сдвиг центра {direction} на ≈{abs(shift):.1f}%."
+            return "OUT_OF_RANGE", f"{_RECOMMENDATIONS['OUT_OF_RANGE']} {hint} {action}"
 
         # Цена внутри [low, high] для остальных правил
         assert inside
@@ -145,12 +154,21 @@ class Evaluator:
                     f"Рекомендуемый центр {direction} активного на ≈{center_diff_pct:.1f}% "
                     f"(active_center={active_center:g}, recommended_center={rec_center:g})."
                 )
-                return "REPOSITION", f"{_RECOMMENDATIONS['REPOSITION']} {hint}"
+                action = (
+                    f"Целевое действие: сдвиг центра на {center_shift_pct:+.1f}% "
+                    f"({direction})."
+                )
+                return "REPOSITION", f"{_RECOMMENDATIONS['REPOSITION']} {hint} {action}"
 
         # 3. STALE — отклонение цены от центра active > 12%
         if deviation_pct > _STALE_DEVIATION_PCT:
-            hint = f"Отклонение от центра active ≈{deviation_pct:.1f}% (цена={current_price:g}, active_center={active_center:g})."
-            return "STALE", f"{_RECOMMENDATIONS['STALE']} {hint}"
+            hint = (
+                f"Отклонение от центра active ≈{deviation_pct:.1f}% "
+                f"(цена={current_price:g}, active_center={active_center:g})."
+            )
+            direction = "вверх" if current_price > active_center else "вниз"
+            action = f"Целевое действие: если переставлять — сдвиг центра {direction} на ≈{deviation_pct:.1f}%."
+            return "STALE", f"{_RECOMMENDATIONS['STALE']} {hint} {action}"
 
         # 4. WARNING — близко к границе (нижние/верхние 5% ширины)
         if width > 0:
@@ -159,7 +177,10 @@ class Evaluator:
                 edge = "нижней" if pos < 0.5 else "верхней"
                 dist = distance_to_lower_pct if edge == "нижней" else distance_to_upper_pct
                 hint = f"Цена ближе к {edge} границе; запас ≈{dist:.1f}%."
-                return "WARNING", f"{_RECOMMENDATIONS['WARNING']} {hint}"
+                # “Целевое действие”: расширять диапазон обычно не надо автоматически,
+                # но полезно показать текущую ширину.
+                action = f"Текущая ширина active_range ≈{active_width_pct:.1f}%."
+                return "WARNING", f"{_RECOMMENDATIONS['WARNING']} {hint} {action}"
 
         # 5. OK
         return "OK", _RECOMMENDATIONS["OK"]

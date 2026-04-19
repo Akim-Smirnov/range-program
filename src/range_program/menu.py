@@ -30,10 +30,12 @@ from questionary import Choice
 from range_program.check_all_report import (
     aggregate_counts,
     format_check_all_table,
+    format_check_all_csv,
     format_summary,
     print_check_all_table,
     print_summary,
     select_rows,
+    select_worst_rows,
 )
 from range_program.config import DEFAULT_QUOTE_ASSET
 from range_program.display_helpers import (
@@ -949,13 +951,30 @@ def _do_check_all(deps: MenuDeps) -> None:
     elif filt == "warn":
         statuses = {"OUT_OF_RANGE", "REPOSITION", "STALE", "WARNING"}
 
+    order = questionary.select(
+        "Сортировка",
+        choices=[
+            Choice("По статусу (важность) + symbol", value="status"),
+            Choice("Top-N worst по отклонению (deviation)", value="worst"),
+        ],
+        style=questionary.Style([("selected", "fg:cyan bold")]),
+    ).ask()
+    if order is None:
+        return
+
     top_raw = questionary.text("Top-N строк (0 = все)", default="0").ask()
     if top_raw is None:
         return
     top_n = int(str(top_raw).strip() or "0")
     top_n_opt = None if top_n <= 0 else top_n
 
-    selected = select_rows(rows, statuses=statuses, top_n=top_n_opt, exclude_ok_by_default=exclude_ok)
+    if order == "worst":
+        # Для “worst” статусы важны как приоритет, а метрика — deviation_pct.
+        # exclude_ok здесь тоже применяем (обычно OK неинтересны).
+        pool = select_rows(rows, statuses=statuses, exclude_ok_by_default=exclude_ok)
+        selected = select_worst_rows(pool, statuses=statuses, top_n=top_n or 10 if top_n > 0 else 0)
+    else:
+        selected = select_rows(rows, statuses=statuses, top_n=top_n_opt, exclude_ok_by_default=exclude_ok)
     print_check_all_table(selected)
     print_summary(aggregate_counts(selected))
 
@@ -969,8 +988,26 @@ def _do_check_all(deps: MenuDeps) -> None:
             return
         out_path = Path(str(path_raw).strip() or str(default_path))
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
-        out_path.write_text(txt, encoding="utf-8")
+        fmt = questionary.select(
+            "Формат файла",
+            choices=[
+                Choice("TXT (таблица + Summary)", value="txt"),
+                Choice("CSV (для Excel)", value="csv"),
+                Choice("TSV (для Excel)", value="tsv"),
+            ],
+            style=questionary.Style([("selected", "fg:cyan bold")]),
+        ).ask()
+        if fmt is None:
+            return
+        if fmt == "csv":
+            out_path = out_path.with_suffix(".csv")
+            out_path.write_text(format_check_all_csv(selected, delimiter=","), encoding="utf-8")
+        elif fmt == "tsv":
+            out_path = out_path.with_suffix(".tsv")
+            out_path.write_text(format_check_all_csv(selected, delimiter="\t"), encoding="utf-8")
+        else:
+            txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
+            out_path.write_text(txt, encoding="utf-8")
         typer.echo(f"Отчёт сохранён: {out_path}")
 
 
@@ -1018,8 +1055,26 @@ def _do_check_all_save(deps: MenuDeps) -> None:
         return
     out_path = Path(str(path_raw).strip() or str(default_path))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
-    out_path.write_text(txt, encoding="utf-8")
+    fmt = questionary.select(
+        "Формат файла",
+        choices=[
+            Choice("TXT (таблица + Summary)", value="txt"),
+            Choice("CSV (для Excel)", value="csv"),
+            Choice("TSV (для Excel)", value="tsv"),
+        ],
+        style=questionary.Style([("selected", "fg:cyan bold")]),
+    ).ask()
+    if fmt is None:
+        return
+    if fmt == "csv":
+        out_path = out_path.with_suffix(".csv")
+        out_path.write_text(format_check_all_csv(selected, delimiter=","), encoding="utf-8")
+    elif fmt == "tsv":
+        out_path = out_path.with_suffix(".tsv")
+        out_path.write_text(format_check_all_csv(selected, delimiter="\t"), encoding="utf-8")
+    else:
+        txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
+        out_path.write_text(txt, encoding="utf-8")
     typer.echo(f"Отчёт сохранён: {out_path}")
 
 

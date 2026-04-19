@@ -3,11 +3,15 @@
 Модуль отвечает за:
 - преобразование `CheckResult` в строки отчета;
 - форматирование чисел и процентов для CLI;
-- цветной вывод таблицы и агрегированной сводки по статусам.
+- цветной вывод таблицы и агрегированной сводки по статусам;
+- экспорт отчёта в TXT/CSV/TSV;
+- выбор подмножества строк (фильтры, top-N, “worst” по отклонению).
 """
 
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
 
 import typer
@@ -63,12 +67,21 @@ class CheckTableRow:
     """Нормализованная строка для вывода результата проверки в таблицу."""
     symbol: str
     price: str
+    price_value: float | None
     active_range: str
+    active_low: float | None
+    active_high: float | None
     rec_range: str
+    rec_low: float | None
+    rec_high: float | None
     dist_down: str
+    dist_down_value: float | None
     dist_up: str
+    dist_up_value: float | None
     dev: str
+    dev_value: float | None
     status: str
+    recommendation: str | None = None
 
     @property
     def sort_rank(self) -> int:
@@ -81,12 +94,21 @@ class CheckTableRow:
         return cls(
             symbol=r.symbol,
             price=_fmt_price(r.current_price),
+            price_value=float(r.current_price),
             active_range=_fmt_range(r.active_low, r.active_high),
+            active_low=float(r.active_low),
+            active_high=float(r.active_high),
             rec_range=_fmt_range(r.recommended_low, r.recommended_high),
+            rec_low=float(r.recommended_low),
+            rec_high=float(r.recommended_high),
             dist_down=_fmt_pct(r.distance_to_lower_pct),
+            dist_down_value=float(r.distance_to_lower_pct),
             dist_up=_fmt_pct(r.distance_to_upper_pct),
+            dist_up_value=float(r.distance_to_upper_pct),
             dev=_fmt_pct(r.deviation_from_active_center_pct),
+            dev_value=float(r.deviation_from_active_center_pct),
             status=r.status,
+            recommendation=r.recommendation,
         )
 
     @classmethod
@@ -98,12 +120,21 @@ class CheckTableRow:
         return cls(
             symbol=symbol,
             price="—",
+            price_value=None,
             active_range="—",
+            active_low=None,
+            active_high=None,
             rec_range="—",
+            rec_low=None,
+            rec_high=None,
             dist_down="—",
+            dist_down_value=None,
             dist_up="—",
+            dist_up_value=None,
             dev=short if short else "—",
+            dev_value=None,
             status="ERROR",
+            recommendation=message,
         )
 
 
@@ -165,6 +196,44 @@ def format_check_all_table(rows: list[CheckTableRow]) -> str:
     return out
 
 
+def format_check_all_csv(rows: list[CheckTableRow], *, delimiter: str = ",") -> str:
+    """Экспорт отчёта в CSV/TSV (delimiter=',' или '\\t')."""
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=delimiter, lineterminator="\n")
+    w.writerow(
+        [
+            "symbol",
+            "status",
+            "price",
+            "active_low",
+            "active_high",
+            "rec_low",
+            "rec_high",
+            "dist_down_pct",
+            "dist_up_pct",
+            "deviation_pct",
+            "recommendation",
+        ]
+    )
+    for r in rows:
+        w.writerow(
+            [
+                r.symbol,
+                r.status,
+                r.price_value if r.price_value is not None else "",
+                r.active_low if r.active_low is not None else "",
+                r.active_high if r.active_high is not None else "",
+                r.rec_low if r.rec_low is not None else "",
+                r.rec_high if r.rec_high is not None else "",
+                r.dist_down_value if r.dist_down_value is not None else "",
+                r.dist_up_value if r.dist_up_value is not None else "",
+                r.dev_value if r.dev_value is not None else "",
+                r.recommendation or "",
+            ]
+        )
+    return buf.getvalue()
+
+
 def format_summary(counts: dict[str, int]) -> str:
     """Сформировать сводку как текст (для сохранения в файл)."""
     out = "\nSummary:\n"
@@ -198,6 +267,35 @@ def select_rows(
     if top_n is not None and top_n > 0:
         return filtered[: int(top_n)]
     return filtered
+
+
+def select_worst_rows(
+    rows: list[CheckTableRow],
+    *,
+    statuses: set[str] | None = None,
+    top_n: int = 10,
+) -> list[CheckTableRow]:
+    """
+    Top-N “самых проблемных” строк.
+
+    Сортировка:
+    1) по важности статуса (OUT_OF_RANGE → ... → OK),
+    2) внутри статуса — по deviation_pct по убыванию,
+    3) затем по symbol.
+    """
+    pool = list(rows)
+    if statuses is not None:
+        pool = [r for r in pool if r.status in statuses]
+    pool.sort(
+        key=lambda r: (
+            r.sort_rank,
+            -float(r.dev_value or -1.0),
+            r.symbol,
+        )
+    )
+    if top_n <= 0:
+        return pool
+    return pool[: int(top_n)]
 
 
 def print_check_all_table(

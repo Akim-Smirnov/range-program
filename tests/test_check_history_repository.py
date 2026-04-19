@@ -109,3 +109,25 @@ def test_rotation_limits_history_per_symbol(hist_path: Path) -> None:
         datetime(2026, 4, 13, 12, 0, tzinfo=timezone.utc).isoformat(),
         datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc).isoformat(),
     ]
+
+
+def test_global_limit_applies(hist_path: Path) -> None:
+    repo = CheckHistoryRepository(hist_path, max_per_symbol=999, max_total=3)
+    repo.save_check(_sample_result("BTC", datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc)))
+    repo.save_check(_sample_result("ETH", datetime(2026, 4, 11, 12, 0, tzinfo=timezone.utc)))
+    repo.save_check(_sample_result("SOL", datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc)))
+    repo.save_check(_sample_result("XRP", datetime(2026, 4, 13, 12, 0, tzinfo=timezone.utc)))
+    all_rows = repo.get_all()
+    assert len(all_rows) == 3
+    assert {r["symbol"] for r in all_rows} == {"ETH", "SOL", "XRP"}
+
+
+def test_purge_older_than_days(hist_path: Path) -> None:
+    repo = CheckHistoryRepository(hist_path, max_per_symbol=999, max_total=999)
+    repo.save_check(_sample_result("BTC", datetime(2026, 4, 1, 12, 0, tzinfo=timezone.utc)))
+    repo.save_check(_sample_result("BTC", datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc)))
+    removed = repo.purge_older_than_days(7, now_utc=datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc))
+    assert removed == 1
+    rows = repo.get_history("BTC")
+    assert len(rows) == 1
+    assert rows[0]["checked_at"] == datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc).isoformat()
