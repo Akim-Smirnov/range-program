@@ -1,6 +1,8 @@
 from range_program.check_all_report import (
     CheckTableRow,
     aggregate_counts,
+    format_check_all_table,
+    format_summary,
     select_rows,
     status_sort_key,
 )
@@ -52,3 +54,14 @@ def test_select_rows_filter_and_top_n() -> None:
     top1 = select_rows(rows, exclude_ok_by_default=True, top_n=1)
     assert len(top1) == 1
     assert top1[0].status == "OUT_OF_RANGE"
+
+
+def test_format_table_and_summary_smoke() -> None:
+    rows = [
+        CheckTableRow("BTC", "1", "a", "r", "1%", "1%", "1%", "OUT_OF_RANGE"),
+        CheckTableRow("ETH", "1", "a", "r", "1%", "1%", "1%", "OK"),
+    ]
+    txt = format_check_all_table(rows)
+    assert "SYMBOL" in txt and "BTC" in txt
+    summ = format_summary(aggregate_counts(rows))
+    assert "Summary" in summ and "OK" in summ

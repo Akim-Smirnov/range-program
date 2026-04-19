@@ -95,3 +95,17 @@ def test_empty_file(hist_path: Path) -> None:
     hist_path.write_text("   \n", encoding="utf-8")
     repo = CheckHistoryRepository(hist_path)
     assert repo.get_all() == []
+
+
+def test_rotation_limits_history_per_symbol(hist_path: Path) -> None:
+    repo = CheckHistoryRepository(hist_path, max_per_symbol=3)
+    for i in range(5):
+        repo.save_check(_sample_result("BTC", datetime(2026, 4, 10 + i, 12, 0, tzinfo=timezone.utc)))
+    rows = repo.get_history("BTC")
+    assert len(rows) == 3
+    # Должны остаться самые новые три
+    assert [r["checked_at"] for r in repo.get_last_n("BTC", 10)] == [
+        datetime(2026, 4, 14, 12, 0, tzinfo=timezone.utc).isoformat(),
+        datetime(2026, 4, 13, 12, 0, tzinfo=timezone.utc).isoformat(),
+        datetime(2026, 4, 12, 12, 0, tzinfo=timezone.utc).isoformat(),
+    ]

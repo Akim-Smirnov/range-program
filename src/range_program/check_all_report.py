@@ -135,6 +135,45 @@ def _col_widths(rows: list[CheckTableRow], headers: tuple[str, ...]) -> list[int
     return w
 
 
+def format_check_all_table(rows: list[CheckTableRow]) -> str:
+    """Сформировать таблицу как текст (для сохранения в файл)."""
+    headers = (
+        "SYMBOL",
+        "PRICE",
+        "ACTIVE RANGE",
+        "REC RANGE",
+        "DIST↓",
+        "DIST↑",
+        "DEV",
+        "STATUS",
+    )
+    if not rows:
+        return "(нет монет для проверки)\n"
+
+    widths = _col_widths(rows, headers)
+
+    def line(parts: tuple[str, ...]) -> str:
+        cells = []
+        for i, p in enumerate(parts):
+            cells.append(p.ljust(widths[i]))
+        return "  ".join(cells) + "\n"
+
+    out = ""
+    out += line(headers)
+    for r in rows:
+        out += line((r.symbol, r.price, r.active_range, r.rec_range, r.dist_down, r.dist_up, r.dev, r.status))
+    return out
+
+
+def format_summary(counts: dict[str, int]) -> str:
+    """Сформировать сводку как текст (для сохранения в файл)."""
+    out = "\nSummary:\n"
+    order = ("OUT_OF_RANGE", "REPOSITION", "STALE", "WARNING", "OK", "ERROR")
+    for k in order:
+        out += f"  {k}: {counts.get(k, 0)}\n"
+    return out
+
+
 def select_rows(
     rows: list[CheckTableRow],
     *,

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Callable, Literal
 
 import questionary
@@ -28,6 +29,8 @@ from questionary import Choice
 
 from range_program.check_all_report import (
     aggregate_counts,
+    format_check_all_table,
+    format_summary,
     print_check_all_table,
     print_summary,
     select_rows,
@@ -937,6 +940,20 @@ def _do_check_all(deps: MenuDeps) -> None:
     selected = select_rows(rows, statuses=statuses, top_n=top_n_opt, exclude_ok_by_default=exclude_ok)
     print_check_all_table(selected)
     print_summary(aggregate_counts(selected))
+
+    if questionary.confirm("Сохранить этот отчёт в файл?", default=False).ask():
+        default_dir = Path(__file__).resolve().parents[2] / "data" / "reports"
+        default_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        default_path = default_dir / f"check_all_{stamp}.txt"
+        path_raw = questionary.text("Путь к файлу отчёта", default=str(default_path)).ask()
+        if path_raw is None:
+            return
+        out_path = Path(str(path_raw).strip() or str(default_path))
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
+        out_path.write_text(txt, encoding="utf-8")
+        typer.echo(f"Отчёт сохранён: {out_path}")
 
 
 def _do_last_check(deps: MenuDeps) -> None:
