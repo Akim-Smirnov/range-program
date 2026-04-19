@@ -29,7 +29,13 @@ from range_program.services.coin_service import CoinService
 from range_program.services.market_data import MarketDataError, MarketDataService
 from range_program.services.range_engine import RangeEngine, RangeEngineError, min_candles_required
 from range_program.services.timeframe_utils import bars_per_day as _bars_per_day
-from range_program.validation import ValidationError
+from range_program.validation import (
+    ValidationError,
+    validate_center_method,
+    validate_lookback_days,
+    validate_timeframe,
+    validate_width_method,
+)
 
 
 def _utc_now() -> datetime:
@@ -103,12 +109,16 @@ class RecalcService:
 
         working = coin
         if timeframe is not None:
+            validate_timeframe(timeframe)
             working = replace(working, timeframe=str(timeframe))
         if lookback_days is not None:
+            validate_lookback_days(int(lookback_days))
             working = replace(working, lookback_days=int(lookback_days))
         if center_method is not None:
+            validate_center_method(center_method)
             working = replace(working, center_method=str(center_method))
         if width_method is not None:
+            validate_width_method(width_method)
             working = replace(working, width_method=str(width_method))
 
         need = min_candles_required(working.center_method, working.width_method)

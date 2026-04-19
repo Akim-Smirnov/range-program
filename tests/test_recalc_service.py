@@ -111,3 +111,14 @@ def test_recalc_overrides_can_be_saved(repo_path: Path) -> None:
     assert c.width_method == "atr"
     assert c.recommended_range is not None
 
+
+def test_recalc_rejects_invalid_override_timeframe(repo_path: Path) -> None:
+    coins = CoinService(CoinRepository(repo_path))
+    ok, _ = coins.add_coin("BTC")
+    assert ok
+
+    market = _FakeMarket(_make_candles(40), price=200.0)
+    svc = RecalcService(coins, market)
+
+    with pytest.raises(ValidationError, match="timeframe"):
+        svc.recalc("BTC", timeframe="bad_tf", save=False)

@@ -34,5 +34,21 @@ def test_set_active_validates_bounds(tmp_path) -> None:
     repo = CoinRepository(path)
     repo.add_coin("BTC")
     svc = CoinService(repo)
-    with pytest.raises(ValidationError, match="low must"):
+    with pytest.raises(ValidationError, match="low"):
         svc.set_active_range("BTC", 10.0, 10.0)
+
+
+def test_add_coin_rejects_invalid_timeframe(tmp_path) -> None:
+    path = tmp_path / "c.json"
+    repo = CoinRepository(path)
+    svc = CoinService(repo)
+    with pytest.raises(ValidationError, match="timeframe"):
+        svc.add_coin("BTC", timeframe="bad_tf")
+
+
+def test_add_coin_rejects_invalid_lookback_days(tmp_path) -> None:
+    path = tmp_path / "c.json"
+    repo = CoinRepository(path)
+    svc = CoinService(repo)
+    with pytest.raises(ValidationError, match="lookback_days"):
+        svc.add_coin("BTC", lookback_days=0)

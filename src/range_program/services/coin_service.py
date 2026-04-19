@@ -18,8 +18,10 @@ from range_program.validation import (
     ValidationError,
     validate_capital,
     validate_center_method,
+    validate_lookback_days,
     validate_mode,
     validate_range_bounds,
+    validate_timeframe,
     validate_width_method,
 )
 
@@ -52,6 +54,8 @@ class CoinService:
         quote_asset: str | None = None,
     ) -> tuple[bool, Coin | None]:
         validate_mode(mode)
+        validate_timeframe(timeframe)
+        validate_lookback_days(lookback_days)
         validate_center_method(center_method)
         validate_width_method(width_method)
         validate_capital(capital)
