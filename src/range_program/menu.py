@@ -1114,6 +1114,7 @@ def _history_section(deps: MenuDeps) -> Literal["main", "exit"]:
             choices=[
                 Choice("История по монете", value="coin"),
                 Choice("Глобальная история", value="global"),
+                Choice("Очистить историю (старше 90 дней)", value="purge90"),
                 Choice("« Назад в главное меню", value="back"),
             ],
             style=questionary.Style([("selected", "fg:cyan bold")]),
@@ -1125,6 +1126,8 @@ def _history_section(deps: MenuDeps) -> Literal["main", "exit"]:
             _safe_call(lambda: _do_history_coin(deps))
         elif act == "global":
             _safe_call(lambda: _do_history_global(deps))
+        elif act == "purge90":
+            _safe_call(lambda: _do_history_purge(deps))
 
         nxt = prompt_next_step("History")
         if nxt == NEXT_EXIT:
@@ -1153,6 +1156,23 @@ def _do_history_global(deps: MenuDeps) -> None:
     n = parse_int_with_default(lim_raw, default=20, minimum=1)
     entries = deps.history_repo.get_global_last_n(n)
     print_history_entries(entries)
+
+
+def _do_history_purge(deps: MenuDeps) -> None:
+    days_raw = questionary.text("Удалить записи старше скольких дней?", default="90").ask()
+    if days_raw is None:
+        return
+    days = parse_int_with_default(days_raw, default=90, minimum=1)
+
+    ok = questionary.confirm(
+        f"Удалить записи истории проверок старше {days} дней из data/check_history.json?",
+        default=False,
+    ).ask()
+    if not ok:
+        return
+
+    removed = deps.history_repo.purge_older_than_days(days)
+    typer.echo(f"Удалено записей: {removed}")
 
 
 def _backtest_section(deps: MenuDeps) -> Literal["main", "exit"]:

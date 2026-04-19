@@ -19,6 +19,17 @@ DEFAULT_QUOTE_ASSET = "USDT"
 FALLBACK_EXCHANGES: tuple[str, ...] = ("binance", "bybit", "okx", "kucoin")
 FALLBACK_QUOTE_ASSETS: tuple[str, ...] = ("USDT", "USDC", "USD")
 
+# --- Рыночные данные (ccxt) ---
+# Таймаут HTTP-запросов к бирже (в миллисекундах).
+CCXT_TIMEOUT_MS = 15_000
+
+# Кол-во повторных попыток при сетевых ошибках (помимо первой попытки).
+# Пример: 2 = всего до 3 запросов (1 + 2 повтора).
+CCXT_RETRY_COUNT = 2
+
+# Базовая задержка между повторами (секунды). Фактическая задержка растёт линейно.
+CCXT_RETRY_BACKOFF_SEC = 1.0
+
 # --- Evaluator (регулярный контроль) ---
 # Порог “близко к краю” как доля ширины active_range (0.05 = 5%).
 EVAL_NEAR_EDGE_FRAC = 0.05

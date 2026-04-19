@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, NamedTuple
 
 import ccxt
 
 from range_program.config import (
+    CCXT_RETRY_BACKOFF_SEC,
+    CCXT_RETRY_COUNT,
+    CCXT_TIMEOUT_MS,
     DEFAULT_EXCHANGE_ID,
     DEFAULT_QUOTE_ASSET,
     FALLBACK_EXCHANGES,
@@ -88,6 +92,7 @@ class MarketDataService:
         self._default_exchange_id = exchange_id.strip().lower()
         self._default_quote = quote_asset.strip().upper()
         self._exchanges: dict[str, ccxt.Exchange] = {}
+        self._log = logging.getLogger("range_program.market_data")
 
     def _get_exchange(self, exchange_id: str) -> ccxt.Exchange:
         eid = exchange_id.strip().lower()
@@ -95,7 +100,12 @@ class MarketDataService:
             if not hasattr(ccxt, eid):
                 raise MarketDataError(f"Неизвестная биржа в ccxt: {eid}")
             ex_class = getattr(ccxt, eid)
-            self._exchanges[eid] = ex_class({"enableRateLimit": True})
+            self._exchanges[eid] = ex_class(
+                {
+                    "enableRateLimit": True,
+                    "timeout": CCXT_TIMEOUT_MS,
+                }
+            )
         return self._exchanges[eid]
 
     def pair_for_symbol(self, symbol: str, coin: Coin | None = None) -> str:
@@ -118,6 +128,37 @@ class MarketDataService:
         if isinstance(exc, ccxt.BaseError):
             return MarketDataError(f"Ошибка биржи: {exc}")
         return MarketDataError(f"Не удалось получить данные: {exc}")
+
+    def _is_retryable_ccxt_error(self, exc: BaseException) -> bool:
+        return isinstance(
+            exc,
+            (
+                ccxt.NetworkError,
+                ccxt.RequestTimeout,
+                ccxt.ExchangeNotAvailable,
+                ccxt.DDoSProtection,
+                ccxt.RateLimitExceeded,
+            ),
+        )
+
+    def _call_ccxt_with_retries(self, label: str, fn) -> Any:
+        retries = int(CCXT_RETRY_COUNT)
+        for attempt in range(retries + 1):
+            try:
+                return fn()
+            except Exception as e:
+                if attempt >= retries or not self._is_retryable_ccxt_error(e):
+                    raise
+                delay = float(CCXT_RETRY_BACKOFF_SEC) * float(attempt + 1)
+                self._log.warning(
+                    "%s failed (%s/%s), retrying in %.1fs: %s",
+                    label,
+                    attempt + 1,
+                    retries + 1,
+                    delay,
+                    e,
+                )
+                time.sleep(delay)
 
     def _try_fetch_ticker(self, exchange_id: str, pair: str) -> dict[str, Any] | None:
         ex = self._get_exchange(exchange_id)
@@ -170,10 +211,13 @@ class MarketDataService:
     def fetch_price_quote_with_match(self, match: MarketSymbolMatch) -> PriceQuote:
         ex = self._get_exchange(match.exchange)
         try:
-            ticker: dict[str, Any] = ex.fetch_ticker(match.symbol_pair)
+            ticker: dict[str, Any] = self._call_ccxt_with_retries(
+                f"fetch_ticker {match.exchange}:{match.symbol_pair}",
+                lambda: ex.fetch_ticker(match.symbol_pair),
+            )
         except Exception as e:
             err = self._map_ccxt_error(match.symbol_pair, e)
-            logging.getLogger("range_program.market_data").warning("%s", err)
+            self._log.warning("%s", err)
             raise err from e
 
         last = ticker.get("last")
@@ -196,10 +240,13 @@ class MarketDataService:
         if limit < 1:
             raise MarketDataError("limit должен быть не меньше 1.")
         try:
-            raw = ex.fetch_ohlcv(match.symbol_pair, timeframe=timeframe, limit=limit)
+            raw = self._call_ccxt_with_retries(
+                f"fetch_ohlcv {match.exchange}:{match.symbol_pair} tf={timeframe} limit={limit}",
+                lambda: ex.fetch_ohlcv(match.symbol_pair, timeframe=timeframe, limit=limit),
+            )
         except Exception as e:
             err = self._map_ccxt_error(match.symbol_pair, e)
-            logging.getLogger("range_program.market_data").warning("%s", err)
+            self._log.warning("%s", err)
             raise err from e
         return self._parse_ohlcv_raw(raw)
 
@@ -209,10 +256,13 @@ class MarketDataService:
             pair = f"{_base_symbol(symbol)}/{self._default_quote}"
             ex = self._get_exchange(self._default_exchange_id)
             try:
-                ticker: dict[str, Any] = ex.fetch_ticker(pair)
+                ticker: dict[str, Any] = self._call_ccxt_with_retries(
+                    f"fetch_ticker {self._default_exchange_id}:{pair}",
+                    lambda: ex.fetch_ticker(pair),
+                )
             except Exception as e:
                 err = self._map_ccxt_error(pair, e)
-                logging.getLogger("range_program.market_data").warning("%s", err)
+                self._log.warning("%s", err)
                 raise err from e
             last = ticker.get("last")
             if last is None and ticker.get("close") is not None:
@@ -238,10 +288,13 @@ class MarketDataService:
             if limit < 1:
                 raise MarketDataError("limit должен быть не меньше 1.")
             try:
-                raw = ex.fetch_ohlcv(pair, timeframe=timeframe, limit=limit)
+                raw = self._call_ccxt_with_retries(
+                    f"fetch_ohlcv {self._default_exchange_id}:{pair} tf={timeframe} limit={limit}",
+                    lambda: ex.fetch_ohlcv(pair, timeframe=timeframe, limit=limit),
+                )
             except Exception as e:
                 err = self._map_ccxt_error(pair, e)
-                logging.getLogger("range_program.market_data").warning("%s", err)
+                self._log.warning("%s", err)
                 raise err from e
             return self._parse_ohlcv_raw(raw)
 

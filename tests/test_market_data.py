@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+import ccxt
 import pytest
 
 from range_program.models.coin import Coin
@@ -33,6 +34,44 @@ def test_get_current_price_uses_last() -> None:
     mock_ex.fetch_ticker.return_value = {"last": 123.45, "timestamp": 1_700_000_000_000}
     with patch.object(MarketDataService, "_get_exchange", return_value=mock_ex):
         assert svc.get_current_price("BTC") == 123.45
+
+
+def test_get_current_price_retries_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import range_program.services.market_data as md
+
+    svc = MarketDataService()
+    mock_ex = MagicMock()
+    mock_ex.fetch_ticker.side_effect = [
+        ccxt.NetworkError("net down"),
+        {"last": 111.0, "timestamp": 1_700_000_000_000},
+    ]
+
+    monkeypatch.setattr(md, "CCXT_RETRY_COUNT", 1)
+    monkeypatch.setattr(md, "CCXT_RETRY_BACKOFF_SEC", 0.0)
+    monkeypatch.setattr(md.time, "sleep", lambda _: None)
+
+    with patch.object(MarketDataService, "_get_exchange", return_value=mock_ex):
+        assert svc.get_current_price("BTC") == 111.0
+    assert mock_ex.fetch_ticker.call_count == 2
+
+
+def test_get_current_price_retry_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
+    import range_program.services.market_data as md
+
+    svc = MarketDataService()
+    mock_ex = MagicMock()
+    mock_ex.fetch_ticker.side_effect = [
+        ccxt.NetworkError("net down"),
+        ccxt.NetworkError("net still down"),
+    ]
+
+    monkeypatch.setattr(md, "CCXT_RETRY_COUNT", 1)
+    monkeypatch.setattr(md, "CCXT_RETRY_BACKOFF_SEC", 0.0)
+    monkeypatch.setattr(md.time, "sleep", lambda _: None)
+
+    with patch.object(MarketDataService, "_get_exchange", return_value=mock_ex):
+        with pytest.raises(MarketDataError, match="сети"):
+            svc.get_current_price("BTC")
 
 
 def test_get_ohlcv_parses_rows() -> None:
