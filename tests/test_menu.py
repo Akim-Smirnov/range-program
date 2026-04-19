@@ -133,10 +133,12 @@ def test_menu_recalc_save_calls_set_active_with_recommended_bounds(tmp_path) -> 
     with (
         patch("range_program.menu._pick_coin_symbol", return_value="SOL"),
         patch("range_program.menu.questionary.confirm") as confirm,
+        patch("range_program.menu.questionary.text") as text,
         patch("range_program.menu.print_recalc_center_comparison_table"),
         patch("range_program.menu.print_recalc_width_comparison_table"),
     ):
         confirm.return_value.ask.return_value = True
+        text.return_value.ask.return_value = ""
         _do_recalc(deps)
 
     coin = deps.coins.get_coin("SOL")
@@ -151,10 +153,12 @@ def test_menu_recalc_dont_save_keeps_active_range_unchanged(tmp_path) -> None:
     with (
         patch("range_program.menu._pick_coin_symbol", return_value="SOL"),
         patch("range_program.menu.questionary.confirm") as confirm,
+        patch("range_program.menu.questionary.text") as text,
         patch("range_program.menu.print_recalc_center_comparison_table"),
         patch("range_program.menu.print_recalc_width_comparison_table"),
     ):
         confirm.return_value.ask.return_value = False
+        text.return_value.ask.return_value = ""
         _do_recalc(deps)
 
     coin = deps.coins.get_coin("SOL")
@@ -167,10 +171,12 @@ def test_menu_recalc_with_missing_recommended_range_does_not_save(tmp_path) -> N
     with (
         patch("range_program.menu._pick_coin_symbol", return_value="SOL"),
         patch("range_program.menu.questionary.confirm") as confirm,
+        patch("range_program.menu.questionary.text") as text,
         patch("range_program.menu.print_recalc_center_comparison_table"),
         patch("range_program.menu.print_recalc_width_comparison_table"),
     ):
         confirm.return_value.ask.return_value = True
+        text.return_value.ask.return_value = ""
         _do_recalc(deps)
 
     coin = deps.coins.get_coin("SOL")

@@ -208,7 +208,10 @@ def _coin_from_dict(data: dict[str, Any]) -> Coin:
     if ar_raw is not None:
         if not isinstance(ar_raw, dict):
             raise ValueError(f"coin {symbol}: active_range must be an object or null")
-        active_range = _active_range_from_dict(ar_raw)
+        try:
+            active_range = _active_range_from_dict(ar_raw)
+        except Exception as e:
+            raise ValueError(f"coin {symbol}: invalid active_range: {e}") from e
 
     recommended_range: RecommendedRange | None = None
     rr_raw = data.get("recommended_range")

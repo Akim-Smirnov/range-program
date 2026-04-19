@@ -393,11 +393,26 @@ def _do_clear_capital(deps: MenuDeps) -> None:
 
 
 def _do_set_active(deps: MenuDeps) -> None:
+    """Задать active_range (как стоит бот) вручную."""
     sym = _pick_coin_symbol(deps, title="Монета")
     if sym is None:
         return
-    low_s = questionary.text("Нижняя граница (low)").ask()
-    high_s = questionary.text("Верхняя граница (high)").ask()
+    norm = Coin.normalize_symbol(sym)
+    coin_before = deps.coins.get_coin(norm)
+    if coin_before is None:
+        typer.secho(f"Монета {norm} не найдена.", fg=typer.colors.YELLOW)
+        return
+
+    if coin_before.active_range is not None:
+        ar = coin_before.active_range
+        typer.echo("Текущий active_range:")
+        typer.echo(f"  low={ar.low:g} high={ar.high:g} set_at={ar.set_at.isoformat()} comment={ar.comment!r}")
+        typer.echo("")
+
+    default_low = str(coin_before.active_range.low) if coin_before.active_range is not None else ""
+    default_high = str(coin_before.active_range.high) if coin_before.active_range is not None else ""
+    low_s = questionary.text("Нижняя граница (low)", default=default_low).ask()
+    high_s = questionary.text("Верхняя граница (high)", default=default_high).ask()
     if low_s is None or high_s is None:
         return
     low = float(low_s.strip())
@@ -411,15 +426,38 @@ def _do_set_active(deps: MenuDeps) -> None:
     assert ar is not None
     typer.echo(f"Активный диапазон для {coin.symbol} сохранён (set_at={ar.set_at.isoformat()})")
 
+    # Быстрая проверка: насколько active_range отличается от recommended_range (если он есть).
+    if coin.recommended_range is not None:
+        rr = coin.recommended_range
+        active_center = (ar.low + ar.high) / 2.0
+        rec_center = float(rr.center)
+        if rec_center > 0 and active_center > 0:
+            center_diff_pct = abs(active_center - rec_center) / rec_center * 100.0
+            active_width_pct = ((ar.high - ar.low) / active_center) * 100.0
+            width_diff_pct = abs(active_width_pct - float(rr.width_pct))
+            if center_diff_pct > 10.0 or width_diff_pct > 15.0:
+                typer.echo("")
+                typer.secho(
+                    "Внимание: active_range заметно отличается от recommended_range.",
+                    fg=typer.colors.YELLOW,
+                )
+                typer.echo(f"  center diff ≈ {center_diff_pct:g}%")
+                typer.echo(f"  width diff  ≈ {width_diff_pct:g} п.п.")
+
 
 def _do_clear_active(deps: MenuDeps) -> None:
+    """Сбросить active_range (как стоит бот)."""
     sym = _pick_coin_symbol(deps, title="Монета")
     if sym is None:
         return
     if not questionary.confirm("Сбросить активный диапазон?", default=False).ask():
         typer.echo("Отменено.")
         return
-    coin = deps.coins.clear_active(sym)
+    cmt = questionary.text("Комментарий (опционально; Enter = нет)", default="").ask()
+    if cmt is None:
+        return
+    comment = parse_optional_str(cmt)
+    coin = deps.coins.clear_active_range(sym, comment=comment)
     typer.echo(f"Активный диапазон для {coin.symbol} удалён (updated_at={coin.updated_at.isoformat()})")
 
 
@@ -718,11 +756,19 @@ def _offer_save_recommended_as_active(deps: MenuDeps, symbol: str) -> None:
         )
         return
 
+    cmt = questionary.text(
+        "Комментарий к active_range (опционально)",
+        default=_RECALC_SAVE_ACTIVE_COMMENT,
+    ).ask()
+    if cmt is None:
+        return
+    comment = parse_optional_str(cmt) or _RECALC_SAVE_ACTIVE_COMMENT
+
     updated = deps.coins.set_active_range(
         norm,
         rr.low,
         rr.high,
-        comment=_RECALC_SAVE_ACTIVE_COMMENT,
+        comment=comment,
     )
     ar = updated.active_range
     if ar is None:
@@ -811,6 +857,17 @@ def _checks_section(deps: MenuDeps) -> Literal["main", "exit"]:
 def _do_check_one(deps: MenuDeps) -> None:
     sym = _pick_coin_symbol(deps, title="Монета")
     if sym is None:
+        return
+    norm = Coin.normalize_symbol(sym)
+    coin = deps.coins.get_coin(norm)
+    if coin is None:
+        typer.secho(f"Монета {norm} не найдена.", fg=typer.colors.YELLOW)
+        return
+    if coin.active_range is None:
+        typer.secho(
+            f"У монеты {norm} нет active_range. Задайте в разделе Coins → «Задать active range».",
+            fg=typer.colors.YELLOW,
+        )
         return
     r = deps.check.run_check(sym)
     typer.echo(f"symbol:                        {r.symbol}")

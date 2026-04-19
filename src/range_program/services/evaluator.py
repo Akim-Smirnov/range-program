@@ -78,6 +78,9 @@ class Evaluator:
             deviation_pct=deviation_from_active_center_pct,
         )
 
+        if ar.comment:
+            recommendation = f"{recommendation} (active_range: {ar.comment})"
+
         return CheckResult(
             symbol=coin.symbol,
             current_price=float(current_price),

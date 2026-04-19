@@ -135,11 +135,19 @@ class CoinService:
         coin = self._repo.get_coin(norm)
         if coin is None:
             raise ValidationError(f"Монета {norm} не найдена.")
+        prev = coin.active_range
         now = _utc_now()
         ar = ActiveRange(low=low, high=high, set_at=now, comment=comment)
         updated = replace(coin, active_range=ar, updated_at=now)
         self._repo.update_coin(updated)
-        _log.info("set_active_range symbol=%s low=%s high=%s comment=%r", norm, low, high, comment)
+        _log.info(
+            "set_active_range symbol=%s old=%s new=(%s,%s) comment=%r",
+            norm,
+            None if prev is None else (prev.low, prev.high),
+            low,
+            high,
+            comment,
+        )
         return updated
 
     def clear_active_range(self, symbol: str, *, comment: str | None = None) -> Coin:
