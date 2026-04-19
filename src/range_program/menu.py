@@ -869,7 +869,13 @@ def _do_check_one(deps: MenuDeps) -> None:
             fg=typer.colors.YELLOW,
         )
         return
-    r = deps.check.run_check(sym)
+    auto = questionary.confirm(
+        "Делать автоматический recalc при необходимости?",
+        default=True,
+    ).ask()
+    if auto is None:
+        return
+    r = deps.check.run_check(sym, auto_recalc=bool(auto))
     typer.echo(f"symbol:                        {r.symbol}")
     typer.echo(f"current_price:                 {r.current_price}")
     typer.echo(f"active_low:                    {r.active_low}")
@@ -887,7 +893,13 @@ def _do_check_one(deps: MenuDeps) -> None:
 
 
 def _do_check_all(deps: MenuDeps) -> None:
-    rows = deps.check.run_check_all()
+    auto = questionary.confirm(
+        "Делать автоматический recalc при необходимости?",
+        default=True,
+    ).ask()
+    if auto is None:
+        return
+    rows = deps.check.run_check_all(auto_recalc=bool(auto))
     print_check_all_table(rows)
     print_summary(aggregate_counts(rows))
 

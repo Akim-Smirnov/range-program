@@ -16,6 +16,7 @@ from range_program.services.recommended_range_freshness import (
     is_recommended_range_stale,
     recommended_range_ttl_for_timeframe,
 )
+from range_program.validation import ValidationError
 
 
 def _dt(h: int = 0, m: int = 0, s: int = 0) -> datetime:
@@ -167,6 +168,18 @@ def test_run_check_recalc_when_recommended_range_missing() -> None:
     assert result.symbol == "BTC"
     assert recalc.calls == ["BTC"]
 
+
+def test_run_check_can_skip_auto_recalc_when_stale() -> None:
+    service, recalc, _ = _build_service(_coin(rr_dt=_dt(0)), _dt(0) + timedelta(hours=24))
+    service.run_check("BTC", auto_recalc=False)
+    assert recalc.calls == []
+
+
+def test_run_check_skip_auto_recalc_fails_when_missing_recommended_range() -> None:
+    service, recalc, _ = _build_service(_coin(with_rr=False), _dt(12))
+    with pytest.raises(ValidationError, match="Автоматический recalc отключён"):
+        service.run_check("BTC", auto_recalc=False)
+    assert recalc.calls == []
 
 def test_run_check_skips_recalc_when_recommended_range_fresh() -> None:
     service, recalc, _ = _build_service(_coin(rr_dt=_dt(0)), _dt(10))
