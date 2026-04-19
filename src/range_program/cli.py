@@ -16,11 +16,6 @@ setup_logging()
 log = get_logger("cli")
 
 app = typer.Typer(help="Range Program — интерактивное меню управления сеточными ботами")
-_service = CoinService()
-_market = MarketDataService()
-_recalc = RecalcService(_service, _market)
-_history_repo = CheckHistoryRepository()
-_check = CheckService(_service, _market, _recalc, history=_history_repo)
 
 
 @app.callback(invoke_without_command=True)
@@ -53,7 +48,7 @@ def _run_interactive_menu() -> None:
         recalc = RecalcService(coins, market)
         history_repo = CheckHistoryRepository()
         check = CheckService(coins, market, recalc, history=history_repo)
-    except (json.JSONDecodeError, ValueError) as e:
+    except (json.JSONDecodeError, ValueError, FileNotFoundError, PermissionError) as e:
         log.exception("failed to initialize services (data may be corrupted)")
         typer.secho("Не удалось прочитать локальные данные из папки data/ (возможна поломка JSON).", fg=typer.colors.RED)
         typer.secho(
