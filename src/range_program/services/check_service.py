@@ -1,3 +1,19 @@
+"""
+Регулярный контроль монет: check одной монеты и сводка по всем.
+
+Этот модуль связывает вместе:
+- локальные настройки монет (`CoinService`),
+- получение текущей цены (`MarketDataService`),
+- (опционально) автоматический recalc, если recommended_range отсутствует/устарел,
+- оценку состояния (Evaluator),
+- сохранение результата в монету (`last_check`) и в историю (`CheckHistoryRepository`).
+
+Поддерживаемые режимы:
+- `auto_recalc`: делать ли автоматический пересчёт recommended_range при check.
+- `persist`: сохранять ли результат проверки (last_check/историю). Если `persist=False`,
+  сервис вернёт результат, но не будет записывать его в `data/` (быстрый “просмотр”).
+"""
+
 from __future__ import annotations
 
 import logging
@@ -33,7 +49,7 @@ def _quote_from_pair(symbol_pair: str) -> str:
 
 
 class CheckService:
-    """Оркестрация check: рынок, при необходимости recalc, Evaluator, сохранение last_check."""
+    """Оркестрация check: рынок, при необходимости recalc, Evaluator, сохранение last_check/истории."""
 
     def __init__(
         self,
@@ -51,7 +67,7 @@ class CheckService:
         self._history = history
         self._now = now_provider or _utc_now
 
-    def run_check(self, symbol: str, *, auto_recalc: bool = True) -> CheckResult:
+    def run_check(self, symbol: str, *, auto_recalc: bool = True, persist: bool = True) -> CheckResult:
         sym = Coin.normalize_symbol(symbol)
         coin = self._coins.get_coin(sym)
         if coin is None:
@@ -113,6 +129,10 @@ class CheckService:
             _log.warning("evaluator failed symbol=%s: %s", sym, e)
             raise ValidationError(str(e)) from e
 
+        if not persist:
+            _log.info("dry-run check symbol=%s (no last_check/history writes)", sym)
+            return result
+
         now = self._now()
         updated = replace(
             coin,
@@ -141,18 +161,24 @@ class CheckService:
             return "Рекомендуемый диапазон устарел"
         return None
 
-    def run_check_safe(self, symbol: str, *, auto_recalc: bool = True) -> tuple[CheckResult | None, str | None]:
+    def run_check_safe(
+        self,
+        symbol: str,
+        *,
+        auto_recalc: bool = True,
+        persist: bool = True,
+    ) -> tuple[CheckResult | None, str | None]:
         """То же, что run_check, но без исключений — для массовой проверки."""
         try:
-            return self.run_check(symbol, auto_recalc=auto_recalc), None
+            return self.run_check(symbol, auto_recalc=auto_recalc, persist=persist), None
         except ValidationError as e:
             return None, str(e)
 
-    def run_check_all(self, *, auto_recalc: bool = True) -> list[CheckTableRow]:
+    def run_check_all(self, *, auto_recalc: bool = True, persist: bool = True) -> list[CheckTableRow]:
         """Проверить все монеты из хранилища; ошибки по одной монете не прерывают остальные."""
         rows: list[CheckTableRow] = []
         for coin in self._coins.list_coins():
-            res, err = self.run_check_safe(coin.symbol, auto_recalc=auto_recalc)
+            res, err = self.run_check_safe(coin.symbol, auto_recalc=auto_recalc, persist=persist)
             if res is not None:
                 rows.append(CheckTableRow.from_check_result(res))
             else:

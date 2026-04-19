@@ -238,3 +238,13 @@ def test_run_check_all_recalc_only_missing_or_stale() -> None:
     assert all(isinstance(row, CheckTableRow) for row in rows)
     assert {row.symbol for row in rows} == {"BTC", "ETH", "SOL"}
     assert sorted(recalc.calls) == ["BTC", "SOL"]
+
+
+def test_run_check_dry_run_does_not_persist(tmp_path) -> None:
+    # Строим сервис с history и свежим recommended_range (чтобы не было auto-recalc побочных эффектов).
+    history = _FakeHistory()
+    service, _, coins = _build_service(_coin(rr_dt=_dt(0)), _dt(10), history=history)
+    result = service.run_check("BTC", persist=False)
+    assert result.symbol == "BTC"
+    assert coins.updated == []
+    assert history.saved == []

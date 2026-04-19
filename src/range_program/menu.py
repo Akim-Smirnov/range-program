@@ -840,6 +840,8 @@ def _checks_section(deps: MenuDeps) -> Literal["main", "exit"]:
             choices=[
                 Choice("Проверить одну монету", value="one"),
                 Choice("Проверить все монеты", value="all"),
+                Choice("Проверить все (только проблемные)", value="all_problems"),
+                Choice("Проверить все и сохранить отчёт", value="all_save"),
                 Choice("Последняя проверка по монете", value="last"),
                 Choice("« Назад в главное меню", value="back"),
             ],
@@ -852,6 +854,10 @@ def _checks_section(deps: MenuDeps) -> Literal["main", "exit"]:
             _safe_call(lambda: _do_check_one(deps))
         elif act == "all":
             _safe_call(lambda: _do_check_all(deps))
+        elif act == "all_problems":
+            _safe_call(lambda: _do_check_all_problems(deps))
+        elif act == "all_save":
+            _safe_call(lambda: _do_check_all_save(deps))
         elif act == "last":
             _safe_call(lambda: _do_last_check(deps))
 
@@ -883,7 +889,13 @@ def _do_check_one(deps: MenuDeps) -> None:
     ).ask()
     if auto is None:
         return
-    r = deps.check.run_check(sym, auto_recalc=bool(auto))
+    persist = questionary.confirm(
+        "Сохранять результат (last_check/история)?",
+        default=True,
+    ).ask()
+    if persist is None:
+        return
+    r = deps.check.run_check(sym, auto_recalc=bool(auto), persist=bool(persist))
     typer.echo(f"symbol:                        {r.symbol}")
     typer.echo(f"current_price:                 {r.current_price}")
     typer.echo(f"active_low:                    {r.active_low}")
@@ -907,7 +919,13 @@ def _do_check_all(deps: MenuDeps) -> None:
     ).ask()
     if auto is None:
         return
-    rows = deps.check.run_check_all(auto_recalc=bool(auto))
+    persist = questionary.confirm(
+        "Сохранять результат (last_check/история)?",
+        default=True,
+    ).ask()
+    if persist is None:
+        return
+    rows = deps.check.run_check_all(auto_recalc=bool(auto), persist=bool(persist))
 
     filt = questionary.select(
         "Фильтр для отчёта",
@@ -954,6 +972,55 @@ def _do_check_all(deps: MenuDeps) -> None:
         txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
         out_path.write_text(txt, encoding="utf-8")
         typer.echo(f"Отчёт сохранён: {out_path}")
+
+
+def _do_check_all_problems(deps: MenuDeps) -> None:
+    """Быстрый check all: сразу показать только проблемные строки (без OK)."""
+    auto = questionary.confirm(
+        "Делать автоматический recalc при необходимости?",
+        default=True,
+    ).ask()
+    if auto is None:
+        return
+    persist = questionary.confirm(
+        "Сохранять результат (last_check/история)?",
+        default=True,
+    ).ask()
+    if persist is None:
+        return
+    rows = deps.check.run_check_all(auto_recalc=bool(auto), persist=bool(persist))
+    selected = select_rows(rows, exclude_ok_by_default=True)
+    print_check_all_table(selected)
+    print_summary(aggregate_counts(selected))
+
+
+def _do_check_all_save(deps: MenuDeps) -> None:
+    """Быстрый check all: сформировать отчёт и сразу сохранить в файл."""
+    auto = questionary.confirm(
+        "Делать автоматический recalc при необходимости?",
+        default=True,
+    ).ask()
+    if auto is None:
+        return
+    rows = deps.check.run_check_all(auto_recalc=bool(auto), persist=True)
+
+    # По умолчанию сохраняем только проблемные строки, чтобы файл был компактнее.
+    selected = select_rows(rows, exclude_ok_by_default=True)
+    print_check_all_table(selected)
+    print_summary(aggregate_counts(selected))
+
+    default_dir = Path(__file__).resolve().parents[2] / "data" / "reports"
+    default_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    default_path = default_dir / f"check_all_{stamp}.txt"
+    path_raw = questionary.text("Путь к файлу отчёта", default=str(default_path)).ask()
+    if path_raw is None:
+        return
+    out_path = Path(str(path_raw).strip() or str(default_path))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    txt = format_check_all_table(selected) + format_summary(aggregate_counts(selected))
+    out_path.write_text(txt, encoding="utf-8")
+    typer.echo(f"Отчёт сохранён: {out_path}")
 
 
 def _do_last_check(deps: MenuDeps) -> None:
