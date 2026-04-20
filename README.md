@@ -5,7 +5,7 @@
 ## Возможности
 
 - **Командный режим** — привычный CLI на [Typer](https://github.com/tiangolo/typer): `range add`, `range recalc`, `range check`, `range backtest` и др.
-- **Интерактивное меню** — `range menu` или `range ui`: разделы (Coins, Market, Range, Checks, History, Backtest, Optimize), выбор монет из списка, пошаговые вопросы ([этап 13](docs/etap-13.md)).
+- **Интерактивное меню** — `range menu` или `range ui`: разделы (Coins, Market, Range, Checks, History, Backtest, Optimize), выбор монет из списка, пошаговые вопросы; в Range analysis есть **recalc с параметрами** (анализ/override без сохранения, с опциональным сохранением) ([этап 13](docs/etap-13.md)).
 - Несколько бирж и котировок через [ccxt](https://github.com/ccxt/ccxt), fallback и кэш пары в монете ([этап 12](docs/etap-12.md)).
 - Локальные данные в `data/` (`coins.json`, `check_history.json`, логи).
 
