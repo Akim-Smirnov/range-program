@@ -1,3 +1,10 @@
+"""
+Агрегированные метрики одного режима на истории.
+
+Файл содержит модель результата сравнения режимов (conservative/balanced/aggressive):
+длительность "жизни" диапазона, касания границ, качество и итоговый score/summary.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,7 +12,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ModeResult:
-    """Метрики одного режима (conservative / balanced / aggressive) после сравнения на истории."""
+    """Метрики одного режима после сравнения на истории (для отчёта и выбора режима)."""
 
     mode: str
     lifetime_days: float
