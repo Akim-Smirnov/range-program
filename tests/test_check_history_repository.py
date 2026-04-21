@@ -56,6 +56,7 @@ def test_save_and_append(hist_path: Path) -> None:
     assert all_rows[0]["symbol"] == "BTC"
     assert all_rows[0]["deviation_from_center_pct"] == 3.0
     assert all_rows[1]["checked_at"] == r2.checked_at.isoformat()
+    assert hist_path.with_name("check_history.json.bak").exists()
 
 
 def test_get_last_n_newest_first(hist_path: Path) -> None:
@@ -84,6 +85,9 @@ def test_corrupt_json_treated_as_empty(hist_path: Path) -> None:
     hist_path.write_text("{not json", encoding="utf-8")
     repo = CheckHistoryRepository(hist_path)
     assert repo.get_all() == []
+    corrupt_files = list(hist_path.parent.glob("check_history.json.corrupt.*"))
+    assert len(corrupt_files) == 1
+    assert corrupt_files[0].read_text(encoding="utf-8") == "{not json"
     repo.save_check(_sample_result())
     assert len(repo.get_all()) == 1
     data = json.loads(hist_path.read_text(encoding="utf-8"))
@@ -131,3 +135,35 @@ def test_purge_older_than_days(hist_path: Path) -> None:
     rows = repo.get_history("BTC")
     assert len(rows) == 1
     assert rows[0]["checked_at"] == datetime(2026, 4, 10, 12, 0, tzinfo=timezone.utc).isoformat()
+
+
+def test_restore_from_backup_when_main_file_is_corrupt(hist_path: Path) -> None:
+    hist_path.parent.mkdir(parents=True, exist_ok=True)
+    hist_path.write_text("{broken", encoding="utf-8")
+    hist_path.with_name("check_history.json.bak").write_text(
+        json.dumps([{"symbol": "SOL", "checked_at": "2026-04-12T00:00:00+00:00"}]),
+        encoding="utf-8",
+    )
+    repo = CheckHistoryRepository(hist_path)
+    rows = repo.get_all()
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "SOL"
+
+
+def test_stale_lock_is_removed_before_write(hist_path: Path) -> None:
+    repo = CheckHistoryRepository(hist_path, stale_lock_seconds=0.0)
+    lock_path = hist_path.with_name("check_history.json.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("stale", encoding="utf-8")
+    repo.save_check(_sample_result())
+    assert not lock_path.exists()
+    assert len(repo.get_all()) == 1
+
+
+def test_timeout_when_active_lock_cannot_be_acquired(hist_path: Path) -> None:
+    repo = CheckHistoryRepository(hist_path, lock_timeout_seconds=0.0, stale_lock_seconds=9999.0)
+    lock_path = hist_path.with_name("check_history.json.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("busy", encoding="utf-8")
+    with pytest.raises(TimeoutError):
+        repo.save_check(_sample_result())

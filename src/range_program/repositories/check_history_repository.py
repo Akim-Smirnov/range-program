@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -22,15 +25,11 @@ def _parse_dt(value: str) -> datetime:
 
 class CheckHistoryRepository:
     """
-    JSON-история проверок (`data/check_history.json`).
+    JSON-history of checks (`data/check_history.json`).
 
-    Файл используется для “журнала” результатов check.
-
-    Чтобы история не росла бесконечно, репозиторий поддерживает ограничения:
-    - `max_per_symbol`: максимум записей на одну монету,
-    - `max_total`: максимум записей во всём файле.
-
-    Также доступна “очистка по времени”: удалить записи старше N дней.
+    The repository keeps the file bounded by per-symbol and global limits.
+    It also protects writes with a lock file and performs atomic replace to
+    avoid partially-written JSON when multiple app instances are active.
     """
 
     def __init__(
@@ -39,10 +38,14 @@ class CheckHistoryRepository:
         *,
         max_per_symbol: int = 500,
         max_total: int = 5000,
+        lock_timeout_seconds: float = 10.0,
+        stale_lock_seconds: float = 60.0,
     ) -> None:
         self._path = path or _default_path()
         self._max_per_symbol = int(max_per_symbol)
         self._max_total = int(max_total)
+        self._lock_timeout_seconds = float(lock_timeout_seconds)
+        self._stale_lock_seconds = float(stale_lock_seconds)
 
     @property
     def path(self) -> Path:
@@ -50,40 +53,126 @@ class CheckHistoryRepository:
 
     @property
     def max_per_symbol(self) -> int:
-        """Максимум записей на монету (защита от бесконечного роста файла)."""
         return self._max_per_symbol
 
     @property
     def max_total(self) -> int:
-        """Максимум записей во всём файле истории."""
         return self._max_total
 
     def _ensure_parent(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def _load_raw(self) -> list[dict[str, Any]]:
+    def _lock_path(self) -> Path:
+        return self._path.with_name(f"{self._path.name}.lock")
+
+    def _backup_path(self) -> Path:
+        return self._path.with_name(f"{self._path.name}.bak")
+
+    def _corrupt_path(self) -> Path:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        return self._path.with_name(f"{self._path.name}.corrupt.{stamp}")
+
+    def _read_text(self) -> str:
+        return self._path.read_text(encoding="utf-8").strip()
+
+    def _parse_items(self, text: str) -> list[dict[str, Any]]:
+        if not text:
+            return []
+        data = json.loads(text)
+        if not isinstance(data, list):
+            raise TypeError(f"check_history.json must contain a list, got {type(data)!r}")
+        return [x for x in data if isinstance(x, dict)]
+
+    def _acquire_lock(self) -> None:
+        self._ensure_parent()
+        lock_path = self._lock_path()
+        deadline = time.monotonic() + max(self._lock_timeout_seconds, 0.0)
+        payload = f"pid={os.getpid()} created_at={datetime.now(timezone.utc).isoformat()}\n"
+
+        while True:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    age = time.time() - lock_path.stat().st_mtime
+                except FileNotFoundError:
+                    continue
+                if age >= self._stale_lock_seconds:
+                    try:
+                        lock_path.unlink()
+                        log.warning("removed stale history lock: %s", lock_path)
+                    except FileNotFoundError:
+                        pass
+                    continue
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"Timed out waiting for history lock: {lock_path}")
+                time.sleep(0.05)
+                continue
+
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+            except Exception:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                raise
+            return
+
+    def _release_lock(self) -> None:
+        try:
+            self._lock_path().unlink()
+        except FileNotFoundError:
+            pass
+
+    def _quarantine_corrupt_file(self, raw_text: str, reason: str) -> None:
+        corrupt_path = self._corrupt_path()
+        corrupt_path.write_text(raw_text, encoding="utf-8")
+        log.error("check_history.json is corrupt, saved a recovery copy to %s: %s", corrupt_path, reason)
+
+        backup_path = self._backup_path()
+        if backup_path.exists():
+            shutil.copy2(backup_path, self._path)
+            log.warning("check_history.json restored from backup: %s", backup_path)
+            return
+
+        self._path.write_text("[]\n", encoding="utf-8")
+        log.warning("check_history.json reset to an empty list after corruption")
+
+    def _load_raw_unlocked(self) -> list[dict[str, Any]]:
         self._ensure_parent()
         if not self._path.exists():
             return []
-        text = self._path.read_text(encoding="utf-8").strip()
-        if not text:
-            return []
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            log.error("check_history.json повреждён, начинаем с пустого списка: %s", e)
-            return []
-        if not isinstance(data, list):
-            log.error("check_history.json должен быть массивом, получено %s", type(data))
-            return []
-        return [x for x in data if isinstance(x, dict)]
+            return self._parse_items(self._read_text())
+        except json.JSONDecodeError as exc:
+            self._quarantine_corrupt_file(self._read_text(), str(exc))
+            return self._parse_items(self._read_text())
+        except TypeError as exc:
+            self._quarantine_corrupt_file(self._read_text(), str(exc))
+            return self._parse_items(self._read_text())
 
-    def _save_raw(self, items: list[dict[str, Any]]) -> None:
+    def _load_raw(self) -> list[dict[str, Any]]:
+        try:
+            return self._parse_items(self._read_text())
+        except FileNotFoundError:
+            return []
+        except (json.JSONDecodeError, TypeError):
+            self._acquire_lock()
+            try:
+                return self._load_raw_unlocked()
+            finally:
+                self._release_lock()
+
+    def _save_raw_unlocked(self, items: list[dict[str, Any]]) -> None:
         self._ensure_parent()
-        self._path.write_text(
-            json.dumps(items, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        payload = json.dumps(items, ensure_ascii=False, indent=2) + "\n"
+        tmp_path = self._path.with_name(f"{self._path.name}.tmp.{os.getpid()}")
+        tmp_path.write_text(payload, encoding="utf-8")
+        if self._path.exists():
+            shutil.copy2(self._path, self._backup_path())
+        os.replace(tmp_path, self._path)
 
     @staticmethod
     def _check_result_to_record(r: CheckResult) -> dict[str, Any]:
@@ -103,23 +192,21 @@ class CheckHistoryRepository:
         }
 
     def save_check(self, result: CheckResult) -> None:
-        """Добавить запись в конец истории и применить ротацию по символу."""
-        items = self._load_raw()
-        items.append(self._check_result_to_record(result))
-        items = self._rotate(items)
-        items = self._apply_global_limit(items)
-        self._save_raw(items)
+        items: list[dict[str, Any]]
+        self._acquire_lock()
+        try:
+            items = self._load_raw_unlocked()
+            items.append(self._check_result_to_record(result))
+            items = self._rotate(items)
+            items = self._apply_global_limit(items)
+            self._save_raw_unlocked(items)
+        finally:
+            self._release_lock()
 
     def _rotate(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """
-        Ограничить число записей на монету до `max_per_symbol`, удаляя самые старые.
-
-        Важно: сохраняем порядок оставшихся записей как в файле.
-        """
         limit = int(self._max_per_symbol)
         if limit < 1:
             return []
-        # Собираем индексы записей по символам.
         by_symbol: dict[str, list[tuple[datetime, int]]] = {}
         for idx, rec in enumerate(items):
             sym = str(rec.get("symbol", "")).strip().upper()
@@ -135,7 +222,6 @@ class CheckHistoryRepository:
         for sym, entries in by_symbol.items():
             if len(entries) <= limit:
                 continue
-            # Сортируем от самых старых к новым; при равенстве — по позиции в файле.
             entries_sorted = sorted(entries, key=lambda t: (t[0], t[1]))
             drop = entries_sorted[: len(entries_sorted) - limit]
             for _, idx in drop:
@@ -147,7 +233,6 @@ class CheckHistoryRepository:
         return [rec for idx, rec in enumerate(items) if idx not in to_drop]
 
     def _apply_global_limit(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Ограничить общий размер истории до `max_total`, удаляя самые старые записи."""
         limit = int(self._max_total)
         if limit < 1:
             return []
@@ -164,17 +249,12 @@ class CheckHistoryRepository:
                 return datetime.min.replace(tzinfo=timezone.utc)
 
         indexed = [(key(rec), idx) for idx, rec in enumerate(items)]
-        indexed_sorted = sorted(indexed, key=lambda t: (t[0], t[1]))  # старые → новые
-        to_drop = set(idx for _, idx in indexed_sorted[: len(indexed_sorted) - limit])
+        indexed_sorted = sorted(indexed, key=lambda t: (t[0], t[1]))
+        to_drop = {idx for _, idx in indexed_sorted[: len(indexed_sorted) - limit]}
         log.info("history rotate global drop=%s keep=%s", len(to_drop), limit)
         return [rec for idx, rec in enumerate(items) if idx not in to_drop]
 
     def purge_older_than_days(self, days: int, *, now_utc: datetime | None = None) -> int:
-        """
-        Удалить записи старше N дней по полю checked_at.
-
-        Возвращает число удалённых записей.
-        """
         n = int(days)
         if n < 1:
             return 0
@@ -196,20 +276,21 @@ class CheckHistoryRepository:
         removed = before - len(kept)
         if removed:
             log.info("history purge older-than-days=%s removed=%s", n, removed)
-            self._save_raw(kept)
+            self._acquire_lock()
+            try:
+                self._save_raw_unlocked(kept)
+            finally:
+                self._release_lock()
         return removed
 
     def get_all(self) -> list[dict[str, Any]]:
-        """Все записи в порядке хранения в файле."""
         return list(self._load_raw())
 
     def get_history(self, symbol: str) -> list[dict[str, Any]]:
-        """Все записи по символу (порядок как в файле — обычно по времени добавления)."""
         sym = symbol.strip().upper()
         return [x for x in self._load_raw() if str(x.get("symbol", "")).upper() == sym]
 
     def get_last_n(self, symbol: str, n: int) -> list[dict[str, Any]]:
-        """Последние n записей по монете, от новых к старым."""
         if n < 1:
             return []
         rows = self.get_history(symbol)
@@ -224,7 +305,6 @@ class CheckHistoryRepository:
         return rows_sorted[:n]
 
     def get_global_last_n(self, n: int) -> list[dict[str, Any]]:
-        """Последние n записей по всем монетам (по времени checked_at)."""
         if n < 1:
             return []
         all_rows = self._load_raw()
