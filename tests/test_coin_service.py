@@ -1,3 +1,5 @@
+"""Тесты CoinService: валидация и обновления монет (active_range/capital)."""
+
 import pytest
 
 from range_program.repositories.coin_repository import CoinRepository

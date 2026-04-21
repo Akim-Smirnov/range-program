@@ -1,3 +1,5 @@
+"""Тесты CoinRepository: чтение/запись `coins.json`, миграции формата и ошибки данных."""
+
 import json
 from pathlib import Path
 

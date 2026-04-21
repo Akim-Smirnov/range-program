@@ -1,3 +1,5 @@
+"""Тесты сервиса проверки монеты (CheckService): recalc-логика, persist и ошибки."""
+
 from __future__ import annotations
 
 from dataclasses import replace

@@ -1,3 +1,5 @@
+"""Тесты Evaluator: статусы OUT_OF_RANGE/WARNING/STALE/REPOSITION/OK и метрики."""
+
 from dataclasses import replace
 from datetime import datetime, timezone
 

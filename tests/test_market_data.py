@@ -1,3 +1,5 @@
+"""Тесты MarketDataService: пары, fallback-поиск и обработка ошибок ccxt."""
+
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 

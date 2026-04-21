@@ -1,3 +1,5 @@
+"""Тесты RangeEngine: расчёт центра/ширины, ограничения и сравнение методов."""
+
 from datetime import datetime, timedelta, timezone
 from statistics import median
 

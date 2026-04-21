@@ -1,3 +1,5 @@
+"""Тесты RecalcService: расчёт recommended_range, лимиты свечей и сохранение результата."""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

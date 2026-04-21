@@ -1,3 +1,5 @@
+"""Тесты формирования отчёта `check --all` (таблица, форматирование, сводка)."""
+
 from range_program.check_all_report import (
     CheckTableRow,
     aggregate_counts,
