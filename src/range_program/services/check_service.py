@@ -39,10 +39,12 @@ _log = logging.getLogger("range_program.check_service")
 
 
 def _utc_now() -> datetime:
+    """Текущее время в UTC (для updated_at/resolved_at)."""
     return datetime.now(timezone.utc)
 
 
 def _quote_from_pair(symbol_pair: str) -> str:
+    """Получить quote-актив из строки пары вида `BASE/QUOTE`."""
     if "/" in symbol_pair:
         return symbol_pair.split("/", 1)[1].strip().upper()
     return "USDT"

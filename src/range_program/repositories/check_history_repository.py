@@ -1,3 +1,13 @@
+"""
+Репозиторий истории проверок (check history).
+
+Файл отвечает за чтение и запись `data/check_history.json`:
+- безопасная (атомарная) запись через временный файл + `os.replace`,
+- резервная копия `.bak` перед обновлением,
+- сохранение повреждённого JSON в `.corrupt.*` для восстановления,
+- lock-файл для защиты от одновременной записи несколькими процессами.
+"""
+
 from __future__ import annotations
 
 import json
@@ -15,21 +25,22 @@ log = logging.getLogger("range_program.check_history")
 
 
 def _default_path() -> Path:
+    """Путь по умолчанию до `data/check_history.json` в корне проекта."""
     return Path(__file__).resolve().parents[3] / "data" / "check_history.json"
 
 
 def _parse_dt(value: str) -> datetime:
+    """Разобрать ISO-datetime (включая суффикс `Z`) в `datetime`."""
     raw = value.replace("Z", "+00:00")
     return datetime.fromisoformat(raw)
 
 
 class CheckHistoryRepository:
     """
-    JSON-history of checks (`data/check_history.json`).
+    Репозиторий истории результатов check (`data/check_history.json`).
 
-    The repository keeps the file bounded by per-symbol and global limits.
-    It also protects writes with a lock file and performs atomic replace to
-    avoid partially-written JSON when multiple app instances are active.
+    Репозиторий ограничивает размер файла (по символу и глобально) и защищает
+    запись от повреждений: lock-файл, атомарная замена и backup.
     """
 
     def __init__(
@@ -63,19 +74,24 @@ class CheckHistoryRepository:
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def _lock_path(self) -> Path:
+        """Путь до lock-файла для межпроцессной синхронизации записи."""
         return self._path.with_name(f"{self._path.name}.lock")
 
     def _backup_path(self) -> Path:
+        """Путь до резервной копии последнего корректного файла истории."""
         return self._path.with_name(f"{self._path.name}.bak")
 
     def _corrupt_path(self) -> Path:
+        """Путь для сохранения повреждённого JSON (для последующего восстановления)."""
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
         return self._path.with_name(f"{self._path.name}.corrupt.{stamp}")
 
     def _read_text(self) -> str:
+        """Прочитать содержимое JSON-файла и нормализовать пробелы."""
         return self._path.read_text(encoding="utf-8").strip()
 
     def _parse_items(self, text: str) -> list[dict[str, Any]]:
+        """Разобрать JSON как список словарей; при неверном формате поднять исключение."""
         if not text:
             return []
         data = json.loads(text)
@@ -84,6 +100,7 @@ class CheckHistoryRepository:
         return [x for x in data if isinstance(x, dict)]
 
     def _acquire_lock(self) -> None:
+        """Захватить lock-файл (с таймаутом) для защиты записи истории между процессами."""
         self._ensure_parent()
         lock_path = self._lock_path()
         deadline = time.monotonic() + max(self._lock_timeout_seconds, 0.0)
@@ -121,24 +138,26 @@ class CheckHistoryRepository:
             return
 
     def _release_lock(self) -> None:
+        """Снять lock-файл (если уже снят, игнорировать)."""
         try:
             self._lock_path().unlink()
         except FileNotFoundError:
             pass
 
     def _quarantine_corrupt_file(self, raw_text: str, reason: str) -> None:
+        """Сохранить повреждённый JSON, затем восстановить из `.bak` или сбросить в `[]`."""
         corrupt_path = self._corrupt_path()
         corrupt_path.write_text(raw_text, encoding="utf-8")
-        log.error("check_history.json is corrupt, saved a recovery copy to %s: %s", corrupt_path, reason)
+        log.error("check_history.json повреждён, копия сохранена в %s: %s", corrupt_path, reason)
 
         backup_path = self._backup_path()
         if backup_path.exists():
             shutil.copy2(backup_path, self._path)
-            log.warning("check_history.json restored from backup: %s", backup_path)
+            log.warning("check_history.json восстановлен из backup: %s", backup_path)
             return
 
         self._path.write_text("[]\n", encoding="utf-8")
-        log.warning("check_history.json reset to an empty list after corruption")
+        log.warning("check_history.json сброшен в пустой список после повреждения")
 
     def _load_raw_unlocked(self) -> list[dict[str, Any]]:
         self._ensure_parent()

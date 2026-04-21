@@ -1,3 +1,10 @@
+"""
+Сервис управления монетами (слой над репозиторием).
+
+Файл реализует операции над локальным хранилищем монет:
+добавление/удаление, изменение настроек, установка/сброс active_range и валидация входных данных.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -28,6 +35,7 @@ from range_program.validation import (
 
 
 def _utc_now() -> datetime:
+    """Текущее время в UTC (для updated_at и событий)."""
     return datetime.now(timezone.utc)
 
 

@@ -1,3 +1,10 @@
+"""
+Оценка состояния монеты относительно активного и рекомендуемого диапазонов.
+
+Файл содержит `Evaluator`, который сравнивает текущую цену с `active_range` и
+`recommended_range` и выдаёт `CheckResult` со статусом и текстовой рекомендацией.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -16,6 +23,7 @@ class EvaluatorError(Exception):
 
 
 def _utc_now() -> datetime:
+    """Текущее время в UTC (для checked_at)."""
     return datetime.now(timezone.utc)
 
 
@@ -34,6 +42,7 @@ _RECOMMENDATIONS: dict[str, str] = {
 
 
 def _safe_pct(numer: float, denom: float) -> float:
+    """Посчитать (numer/denom)*100, безопасно для denom=0."""
     if denom == 0.0:
         return 0.0
     return (numer / denom) * 100.0

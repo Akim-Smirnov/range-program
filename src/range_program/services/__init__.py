@@ -1,3 +1,10 @@
+"""
+Пакет сервисов (бизнес-логика).
+
+Содержит основные сервисы приложения (монеты, рынок, пересчёт диапазона, check и т.д.).
+`__init__` реэкспортирует основные классы и исключения для удобного импорта.
+"""
+
 from range_program.services.coin_service import CoinService
 from range_program.services.market_data import MarketDataError, MarketDataService, PriceQuote
 from range_program.services.range_engine import RangeEngine, RangeEngineError

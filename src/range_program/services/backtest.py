@@ -1,3 +1,11 @@
+"""
+Backtest "жизни" диапазона на истории.
+
+Файл содержит функцию `run_backtest`, которая симулирует движение цены по историческим
+свечам: строит стартовый диапазон, затем оценивает статус (OK/WARNING/STALE/REPOSITION)
+до выхода цены за границы.
+"""
+
 from __future__ import annotations
 
 import math
@@ -18,6 +26,7 @@ _MAX_FETCH = 1000
 
 
 def _utc_now() -> datetime:
+    """Текущее время в UTC (для отметок tested_at)."""
     return datetime.now(timezone.utc)
 
 
@@ -176,6 +185,7 @@ def _build_summary(
     reposition_count: int,
     max_dev: float,
 ) -> str:
+    """Собрать короткое текстовое резюме результата backtest (для отображения пользователю)."""
     parts: list[str] = []
     if not hit_upper and not hit_lower:
         parts.append("Price stayed inside the active range for the whole simulated window.")

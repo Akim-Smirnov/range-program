@@ -1,3 +1,12 @@
+"""
+Репозиторий монет (локальное хранилище `coins.json`).
+
+Файл изолирует весь ввод/вывод для `data/coins.json`:
+- сериализация/десериализация доменных моделей (Coin и вложенных сущностей),
+- базовые операции CRUD (list/get/add/remove/update),
+- понятные ошибки при чтении повреждённого/неверного JSON.
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,15 +29,18 @@ from range_program.models.defaults import (
 
 
 def _default_data_path() -> Path:
+    """Путь по умолчанию до `data/coins.json` в корне проекта."""
     return Path(__file__).resolve().parents[3] / "data" / "coins.json"
 
 
 def _parse_dt(value: str) -> datetime:
+    """Разобрать ISO-datetime (включая суффикс `Z`) в `datetime`."""
     raw = value.replace("Z", "+00:00")
     return datetime.fromisoformat(raw)
 
 
 def _active_range_to_dict(ar: ActiveRange) -> dict[str, Any]:
+    """Преобразовать ActiveRange в JSON-словарь для `coins.json`."""
     d: dict[str, Any] = {
         "low": ar.low,
         "high": ar.high,
@@ -40,6 +52,7 @@ def _active_range_to_dict(ar: ActiveRange) -> dict[str, Any]:
 
 
 def _grid_config_to_dict(gc: GridConfig) -> dict[str, Any]:
+    """Преобразовать GridConfig в JSON-словарь."""
     return {
         "mode": gc.mode,
         "grid_count": gc.grid_count,
@@ -49,6 +62,7 @@ def _grid_config_to_dict(gc: GridConfig) -> dict[str, Any]:
 
 
 def _grid_config_from_dict(data: dict[str, Any]) -> GridConfig:
+    """Прочитать GridConfig из JSON-словаря."""
     return GridConfig(
         mode=str(data["mode"]),
         grid_count=int(data["grid_count"]),
@@ -58,6 +72,7 @@ def _grid_config_from_dict(data: dict[str, Any]) -> GridConfig:
 
 
 def _recommended_range_to_dict(rr: RecommendedRange) -> dict[str, Any]:
+    """Преобразовать RecommendedRange в JSON-словарь для `coins.json`."""
     d: dict[str, Any] = {
         "low": rr.low,
         "high": rr.high,
@@ -72,6 +87,7 @@ def _recommended_range_to_dict(rr: RecommendedRange) -> dict[str, Any]:
 
 
 def _check_result_to_dict(cr: CheckResult) -> dict[str, Any]:
+    """Преобразовать CheckResult в JSON-словарь для `coins.json`."""
     return {
         "symbol": cr.symbol,
         "current_price": cr.current_price,
@@ -91,6 +107,7 @@ def _check_result_to_dict(cr: CheckResult) -> dict[str, Any]:
 
 
 def _check_result_from_dict(data: dict[str, Any]) -> CheckResult:
+    """Прочитать CheckResult из JSON-словаря."""
     return CheckResult(
         symbol=str(data["symbol"]),
         current_price=float(data["current_price"]),
@@ -110,6 +127,7 @@ def _check_result_from_dict(data: dict[str, Any]) -> CheckResult:
 
 
 def _recommended_range_from_dict(data: dict[str, Any]) -> RecommendedRange:
+    """Прочитать RecommendedRange из JSON-словаря (включая grid_configs)."""
     raw_gc = data.get("grid_configs")
     grid_configs: tuple[GridConfig, ...] = ()
     if raw_gc is not None:
@@ -135,6 +153,7 @@ def _recommended_range_from_dict(data: dict[str, Any]) -> RecommendedRange:
 
 
 def _active_range_from_dict(data: dict[str, Any]) -> ActiveRange:
+    """Прочитать ActiveRange из JSON-словаря."""
     cr = data.get("comment")
     comment: str | None = None if cr is None else str(cr)
     return ActiveRange(
@@ -146,6 +165,7 @@ def _active_range_from_dict(data: dict[str, Any]) -> ActiveRange:
 
 
 def _coin_to_dict(coin: Coin) -> dict[str, Any]:
+    """Преобразовать Coin в JSON-словарь для `coins.json`."""
     out: dict[str, Any] = {
         "symbol": coin.symbol,
         "created_at": coin.created_at.isoformat(),
@@ -270,7 +290,7 @@ def _coin_from_dict(data: dict[str, Any]) -> Coin:
 
 
 class CoinRepository:
-    """Хранение монет в JSON-файле; вся работа с файлом изолирована здесь."""
+    """Хранение монет в JSON-файле; вся работа с `data/coins.json` изолирована здесь."""
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or _default_data_path()
@@ -280,11 +300,13 @@ class CoinRepository:
         return self._path
 
     def _ensure_file(self) -> None:
+        """Создать каталог и файл хранилища, если их ещё нет."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
         if not self._path.exists():
             self._path.write_text("[]", encoding="utf-8")
 
     def _load_raw_list(self) -> list[dict[str, Any]]:
+        """Прочитать `coins.json` как список объектов и провалидировать базовый формат."""
         self._ensure_file()
         text = self._path.read_text(encoding="utf-8").strip()
         if not text:
@@ -298,6 +320,7 @@ class CoinRepository:
         return [x for x in data if isinstance(x, dict)]
 
     def _load_coins(self) -> list[Coin]:
+        """Прочитать все монеты и преобразовать в доменные модели."""
         raw = self._load_raw_list()
         coins: list[Coin] = []
         for i, item in enumerate(raw):
@@ -308,6 +331,7 @@ class CoinRepository:
         return coins
 
     def _save_coins(self, coins: list[Coin]) -> None:
+        """Сохранить список монет в `coins.json` в стабильном порядке (по symbol)."""
         self._ensure_file()
         payload = [_coin_to_dict(c) for c in sorted(coins, key=lambda x: x.symbol)]
         self._path.write_text(
@@ -316,9 +340,11 @@ class CoinRepository:
         )
 
     def list_coins(self) -> list[Coin]:
+        """Вернуть список всех монет из хранилища."""
         return self._load_coins()
 
     def get_coin(self, symbol: str) -> Coin | None:
+        """Найти монету по символу; None если монеты нет."""
         sym = Coin.normalize_symbol(symbol)
         for c in self.list_coins():
             if c.symbol == sym:
@@ -362,6 +388,7 @@ class CoinRepository:
         return True
 
     def remove_coin(self, symbol: str) -> bool:
+        """Удалить монету из хранилища. False если монеты не было."""
         sym = Coin.normalize_symbol(symbol)
         coins = self._load_coins()
         new_coins = [c for c in coins if c.symbol != sym]

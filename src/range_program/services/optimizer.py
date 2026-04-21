@@ -1,3 +1,10 @@
+"""
+Сравнение режимов (mode) по backtest.
+
+Файл содержит простую "оптимизацию" по истории: прогоняет backtest для разных mode,
+считает метрики и скоринг, и возвращает результаты для отчёта/выбора режима.
+"""
+
 from __future__ import annotations
 
 from dataclasses import replace
@@ -15,6 +22,7 @@ MODES_COMPARISON_ORDER = ("conservative", "balanced", "aggressive")
 
 
 def _steps_to_days(count: int, bpd: float) -> float:
+    """Перевести число шагов (свечей) в дни по оценке bars_per_day."""
     if bpd <= 0:
         return 0.0
     return count / bpd
@@ -99,6 +107,7 @@ def compare_modes(
 
 
 def best_mode_result(results: list[ModeResult]) -> ModeResult | None:
+    """Вернуть лучший результат (max score) или None для пустого списка."""
     if not results:
         return None
     return max(results, key=lambda r: r.score)
@@ -112,6 +121,7 @@ def _build_mode_summary(
     hit_lower: bool,
     score: float,
 ) -> str:
+    """Собрать короткое текстовое резюме результата режима (для таблицы/вывода)."""
     parts = [f"{mode}: score {score:.1f}, lifetime ~{lifetime_days:.1f} d."]
     if hit_lower:
         parts.append("First exit lower.")

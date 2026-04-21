@@ -1,3 +1,13 @@
+"""
+Движок расчёта рекомендованного диапазона (RangeEngine).
+
+Файл содержит реализацию расчёта `RecommendedRange` по монете и историческим свечам:
+- методы расчёта центра (price/ema/sma/median/midpoint/donchian),
+- методы расчёта ширины (atr/std/donchian/historical_range),
+- ограничения ширины по режимам,
+- генерация вариантов геометрической сетки поверх диапазона.
+"""
+
 from __future__ import annotations
 
 import statistics
@@ -79,10 +89,12 @@ _MAX_GRIDS = 120
 
 
 def _utc_now() -> datetime:
+    """Текущее время в UTC (для calculated_at у RecommendedRange)."""
     return datetime.now(timezone.utc)
 
 
 def _sorted_candles(candles: Sequence[Candle]) -> list[Candle]:
+    """Отсортировать свечи по времени (timestamp) по возрастанию."""
     return sorted(candles, key=lambda c: c.timestamp)
 
 

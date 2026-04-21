@@ -1,3 +1,14 @@
+"""
+Доступ к рынку (цены и свечи) через ccxt.
+
+Файл реализует `MarketDataService`, который:
+- резолвит рынок (биржа + торговая пара) с fallback по биржам и quote-активам,
+- получает текущую цену (ticker),
+- загружает OHLCV-свечи,
+- нормализует и маппит ошибки ccxt в `MarketDataError`,
+- делает ретраи на временных сетевых/биржевых ошибках.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +42,7 @@ class PriceQuote(NamedTuple):
 
 
 def _base_symbol(symbol: str) -> str:
+    """Нормализовать base-тикер (BASE) из `BASE` или `BASE/QUOTE`."""
     s = symbol.strip().upper()
     if "/" in s:
         return s.split("/")[0].strip()
@@ -38,6 +50,7 @@ def _base_symbol(symbol: str) -> str:
 
 
 def _ms_to_utc(ms: int | float | None) -> datetime | None:
+    """Преобразовать epoch millis в `datetime` UTC; None остаётся None."""
     if ms is None:
         return None
     return datetime.fromtimestamp(float(ms) / 1000.0, tz=timezone.utc)
@@ -60,6 +73,7 @@ def _exchange_order(preferred: str | None) -> list[str]:
 
 
 def _quote_order(preferred: str | None) -> list[str]:
+    """Порядок перебора quote-активов: preferred первый, затем FALLBACK_QUOTE_ASSETS без дубликатов."""
     seen: set[str] = set()
     out: list[str] = []
     if preferred:
@@ -75,6 +89,7 @@ def _quote_order(preferred: str | None) -> list[str]:
 
 
 def _quote_from_pair(symbol_pair: str) -> str:
+    """Получить quote-актив из строки пары вида `BASE/QUOTE`."""
     if "/" in symbol_pair:
         return symbol_pair.split("/", 1)[1].strip().upper()
     return DEFAULT_QUOTE_ASSET

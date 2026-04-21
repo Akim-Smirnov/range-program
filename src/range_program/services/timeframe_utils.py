@@ -1,10 +1,17 @@
+"""
+Утилиты для таймфреймов.
+
+Файл содержит функцию, которая оценивает количество свечей в сутки по строке таймфрейма
+в формате ccxt (например, 1m, 4h, 1d).
+"""
+
 from __future__ import annotations
 
 import re
 
 
 def bars_per_day(timeframe: str) -> float:
-    """Rough number of candles per day for ccxt timeframe strings (1m, 4h, 1d, ...)."""
+    """Грубая оценка числа свечей в сутки для таймфрейма ccxt (1m, 4h, 1d, ...)."""
     tf = timeframe.strip().lower()
     m = re.match(r"^(\d+)([mhdw])$", tf)
     if not m:
