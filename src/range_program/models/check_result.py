@@ -1,3 +1,10 @@
+"""
+Результат проверки монеты (check).
+
+Файл содержит модель данных, которую возвращает сервис проверки: текущая цена, активный
+и рекомендуемый диапазоны, метрики отклонения и итоговое сообщение/статус.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +13,17 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class CheckResult:
+    """
+    Итог проверки монеты.
+
+    Содержит:
+    - `active_*`: текущий активный диапазон пользователя,
+    - `recommended_*`: рассчитанный рекомендуемый диапазон,
+    - метрики расстояния/отклонения в процентах,
+    - `status` и `recommendation`,
+    - `checked_at` (UTC).
+    """
+
     symbol: str
     current_price: float
     active_low: float

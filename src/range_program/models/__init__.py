@@ -1,3 +1,10 @@
+"""
+Пакет доменных моделей.
+
+Содержит dataclass-модели (Coin, диапазоны, результаты check/backtest и т.д.).
+`__init__` реэкспортирует основные сущности для импорта из `range_program.models`.
+"""
+
 from range_program.models.active_range import ActiveRange
 from range_program.models.backtest_result import BacktestResult
 from range_program.models.candle import Candle

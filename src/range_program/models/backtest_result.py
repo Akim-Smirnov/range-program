@@ -1,3 +1,10 @@
+"""
+Результат backtest "жизни" диапазона.
+
+Файл содержит модель данных, которую возвращает backtest: параметры теста, длительность
+жизни диапазона, касания границ и сводные счетчики/итог.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +13,16 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class BacktestResult:
-    """Результат простого backtest «жизни» диапазона на исторических свечах (MVP)."""
+    """
+    Результат простого backtest "жизни" диапазона на исторических свечах (MVP).
+
+    Поля сгруппированы как:
+    - входные параметры теста (symbol/start_price/range_*),
+    - длительность (lifetime_*),
+    - события (hit_upper/hit_lower),
+    - качество (ok/warning/stale и reposition_count),
+    - текстовый итог (result_summary) и время теста (tested_at).
+    """
 
     symbol: str
     start_price: float

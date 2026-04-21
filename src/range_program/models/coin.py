@@ -1,15 +1,14 @@
 """
 Модель монеты (Coin) и её настройки для Range Program.
 
-`Coin` — центральная доменная сущность проекта. В одном объекте хранятся:
-- пользовательские настройки расчёта (mode/timeframe/lookback_days/center_method/width_method),
-- параметры рынка (предпочтительная биржа/котируемый актив + последний успешно найденный рынок),
-- диапазоны (active_range и рассчитанный recommended_range),
-- служебные поля времени (created_at/updated_at/resolved_at) и последняя проверка.
+`Coin` это центральная доменная сущность проекта. В ней хранятся:
+- настройки расчёта диапазона (mode/timeframe/lookback_days/center_method/width_method),
+- рыночный контекст (exchange/quote_asset и кэш последнего успешного сопоставления рынка),
+- диапазоны (active_range и calculated recommended_range),
+- последняя проверка (last_check) и служебные времена.
 
-Объект сделан неизменяемым (`frozen=True`): обновление происходит через
-`dataclasses.replace(...)` или через удобный метод `with_settings(...)`.
-Так меньше риск “случайно” поменять поле в середине расчёта.
+Модель неизменяемая (`frozen=True`), изменения выполняются через `dataclasses.replace(...)`,
+`with_settings(...)` или `create(...)` при создании новой монеты.
 """
 
 from __future__ import annotations
@@ -35,7 +34,12 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class Coin:
-    """Монета и все связанные с ней настройки/состояние."""
+    """
+    Монета и все связанные с ней настройки и состояние.
+
+    Экземпляр нормализует строковые поля (symbol/mode/timeframe/center_method/width_method)
+    в `__post_init__`, чтобы данные в `data/` были единообразными.
+    """
 
     # Базовые настройки пользователя
     symbol: str
@@ -92,7 +96,7 @@ class Coin:
         return width_method.strip().lower()
 
     def normalized(self) -> Coin:
-        """Возвращает копию монеты с нормализованными строковыми полями."""
+        """Вернуть копию монеты с нормализованными строковыми полями."""
         return replace(
             self,
             symbol=self.normalize_symbol(self.symbol),
@@ -112,9 +116,9 @@ class Coin:
         width_method: str | None = None,
     ) -> Coin:
         """
-        Возвращает копию монеты с обновлёнными настройками расчёта.
+        Вернуть копию монеты с обновлёнными настройками расчёта.
 
-        Удобно для “примерки” настроек (override) и единообразной нормализации.
+        Удобно для "примерки" настроек (override) и единообразной нормализации входных строк.
         """
         updated = self
         if mode is not None:
